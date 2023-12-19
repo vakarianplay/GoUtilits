@@ -6,6 +6,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
+
+	"github.com/fatih/color"
+	"github.com/inancgumus/screen"
 
 	"gopkg.in/yaml.v2"
 )
@@ -25,10 +29,27 @@ const (
 
 func main() {
 	fmt.Println(readCfg()[IPCFG], "   ", readCfg()[NAMECFG])
+	ticker := time.NewTicker(1 * time.Second)
+	cyan := color.New(color.FgCyan, color.Italic, color.Bold, color.BlinkRapid)
+	red := color.New(color.FgRed, color.Bold)
 
 	if isConnect() {
-		fmt.Println(httpProcessor(STATUS, readCfg()[IPCFG]))
-		fmt.Println(httpProcessor(UPTIME, readCfg()[IPCFG]))
+		for {
+			select {
+			case <-ticker.C:
+				screen.Clear()
+				screen.MoveTopLeft()
+				st, _ := httpProcessor(STATUS, readCfg()[IPCFG])
+				if st == "0" {
+					cyan.Println("RELAY OFF")
+				} else {
+					cyan.Println("RELAY ON")
+				}
+				uptime, _ := httpProcessor(UPTIME, readCfg()[IPCFG])
+				red.Println(uptime)
+			}
+		}
+
 	}
 
 }
