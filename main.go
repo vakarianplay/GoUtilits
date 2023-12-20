@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/eiannone/keyboard"
 	"github.com/fatih/color"
 	"github.com/inancgumus/screen"
 
@@ -32,6 +33,9 @@ func main() {
 	ticker := time.NewTicker(1 * time.Second)
 	cyan := color.New(color.FgCyan, color.Italic, color.Bold, color.BlinkRapid)
 	red := color.New(color.FgRed, color.Bold)
+	yellow := color.New(color.FgHiYellow, color.Italic, color.Bold)
+	cyanCaption := color.New(color.FgCyan, color.Italic, color.BlinkSlow)
+	go keyProcessor()
 
 	if isConnect() {
 		for {
@@ -39,14 +43,19 @@ func main() {
 			case <-ticker.C:
 				screen.Clear()
 				screen.MoveTopLeft()
+				yellow.Println("          ", readCfg()[NAMECFG])
+				yellow.Println(" ")
 				st, _ := httpProcessor(STATUS, readCfg()[IPCFG])
 				if st == "0" {
-					cyan.Println("RELAY OFF")
+					cyan.Println("           ", "RELAY OFF")
 				} else {
-					cyan.Println("RELAY ON")
+					cyan.Println("           ", "RELAY ON")
 				}
 				uptime, _ := httpProcessor(UPTIME, readCfg()[IPCFG])
+				red.Println(" ")
 				red.Println(uptime)
+				cyanCaption.Println("\n\n\nF5 - switch on, F6- switch off")
+				cyanCaption.Println("F10 - toggle state")
 			}
 		}
 
@@ -114,4 +123,31 @@ func readCfg() []string {
 	out = append(out, relayIp, relayName)
 
 	return out
+}
+
+func keyProcessor() {
+	err := keyboard.Open()
+	if err != nil {
+		panic(err)
+	}
+	defer keyboard.Close()
+
+	for {
+		char, key, err := keyboard.GetKey()
+		if err != nil {
+			panic(err)
+		}
+
+		if key == keyboard.KeyF5 {
+			httpProcessor(ON, readCfg()[IPCFG])
+		} else if key == keyboard.KeyF6 {
+			httpProcessor(OFF, readCfg()[IPCFG])
+		} else if key == keyboard.KeyF10 {
+			httpProcessor(TOGGLE, readCfg()[IPCFG])
+		}
+
+		if char == 'q' || char == 'Q' {
+			break
+		}
+	}
 }
