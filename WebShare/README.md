@@ -14,3 +14,9 @@ or share on default port (8080)
 ```
 ./webshare --dir <path_to_dir>
 ```
+
+
+## Releases:
+For windows x64, linux x64, linux arm, arm64, risc-v
+
+https://github.com/vakarianplay/GoClients/releases/tag/webshare
