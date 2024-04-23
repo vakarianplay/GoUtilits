@@ -32,5 +32,13 @@ Lightweight minimalistic web server for opening access to a directory via http
 
 ![alt text](https://img.shields.io/badge/Status-in%20complete-2E8B57?style=for-the-badge&logo=Buddy)
 
+## Usage:
+`./webshare --dir /path/to/dir -- port 1337`
+
+> default port 8080
+
 ## Releases: 
 
+For windows x64, linux x64, linux arm, arm64, risc-v
+
+https://github.com/vakarianplay/GoClients/releases/tag/webshare
