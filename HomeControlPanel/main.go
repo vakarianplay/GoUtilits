@@ -57,6 +57,32 @@ func main() {
 		w.Write([]byte(st))
 	})
 
+	http.HandleFunc("/led0", func(w http.ResponseWriter, r *http.Request) {
+		kitchenLedController(0)
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(html)) // Отправка содержимого index.html
+	})
+	http.HandleFunc("/led20", func(w http.ResponseWriter, r *http.Request) {
+		kitchenLedController(20)
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(html)) // Отправка содержимого index.html
+	})
+	http.HandleFunc("/led50", func(w http.ResponseWriter, r *http.Request) {
+		kitchenLedController(50)
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(html)) // Отправка содержимого index.html
+	})
+	http.HandleFunc("/led80", func(w http.ResponseWriter, r *http.Request) {
+		kitchenLedController(80)
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(html)) // Отправка содержимого index.html
+	})
+	http.HandleFunc("/led100", func(w http.ResponseWriter, r *http.Request) {
+		kitchenLedController(100)
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(html)) // Отправка содержимого index.html
+	})
+
 	log.Println("Server started. Port " + readCfg()[1])
 	http.ListenAndServe(":"+readCfg()[1], nil)
 
@@ -123,8 +149,8 @@ func handleToggleSonoff() {
 	}
 }
 
-func kitchenLedController(bright int) {
-	tempCmd := fmt.Sprintf(readCfg()[7], strconv.Itoa(bright))
+func kitchenLedController(bright int) string {
+	tempCmd := fmt.Sprintf(readCfg()[6], strconv.Itoa(bright))
 	log.Println(tempCmd)
-
+	return tempCmd
 }
