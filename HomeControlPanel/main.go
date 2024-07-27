@@ -89,13 +89,19 @@ func main() {
 }
 
 func handleStateHallway() string {
-	cmd := exec.Command("cmd", "-c", readCfg()[3])
+	cmd := exec.Command("bash", "-c", readCfg()[4])
 	stdout, err := cmd.Output()
 	if err != nil {
 		log.Fatalf("Error execute: %v", err)
 	}
+	tmpStr := strings.ReplaceAll(string(stdout), "\n", "")
 
-	return strings.ReplaceAll(string(stdout), "\n", "")
+	if tmpStr == "1" {
+		tmpStr = "0"
+	} else {
+		tmpStr = "1"
+	}
+	return tmpStr
 }
 
 func handleStateWLED() string {
@@ -112,16 +118,16 @@ func handleStateSonoff() string {
 }
 
 func handleToggleHallway() {
-	log.Println("toggleFuncHallway")
+	log.Println("toggleFuncHallway", "    ", handleStateHallway())
 
 	if handleStateHallway() == "0" {
-		cmd := exec.Command("bash", "-c", readCfg()[1])
+		cmd := exec.Command("bash", "-c", readCfg()[2])
 		if err := cmd.Run(); err != nil {
 			log.Println("Failed to execute command")
 			return
 		}
 	} else {
-		cmd := exec.Command("bash", "-c", readCfg()[2])
+		cmd := exec.Command("bash", "-c", readCfg()[3])
 		if err := cmd.Run(); err != nil {
 			log.Println("Failed to execute command")
 			return
