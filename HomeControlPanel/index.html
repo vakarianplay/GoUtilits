@@ -18,7 +18,7 @@
   <html>
   <head>
   <meta charset="utf-8" name="viewport" content="width=device-width initial-scale=1">
-  <title>CAM CONTROLLER</title>
+  <title>Home Control</title>
   <style type="text/css">
 
   :root {
@@ -82,7 +82,7 @@
 
   }
    a.button {
-    font-weight: 700;
+    font-weight: 600;
     color: white;
     text-decoration: none;
     padding: .8em 1em calc(.8em + 3px);
@@ -137,7 +137,7 @@
   <div class="centralblock">
   	<div>
   		<!-- <h1>SONOFF</h1><h1>RELAY</h1><br> -->
-          <img src="{stream_url}" />
+          <!-- <img src="{stream_url}" /> -->
   		<p class="checkbox-slider">Hallway light <input type="checkbox" onclick="toggle1()" id="state1" unchecked>
       <p class="checkbox-slider">WLED <input type="checkbox" onclick="toggle2()" id="state2" unchecked>
       <p class="checkbox-slider">Sonoff plant light <input type="checkbox" onclick="toggle3()" id="state3" unchecked>
@@ -145,17 +145,22 @@
   	 <br>
      <div>
       <p class="checkbox-slider">Kitchen led</p>
-     <a class="button" href="/led0"><span>&#9881;</span> 0% </a><a class="button" href="/led20"><span>&#9881;</span> 20% </a>
-     <a class="button" href="/led50"><span>&#9881;</span> 50% </a><a class="button" href="/led80"><span>&#9881;</span> 80% </a>
-     <a class="button" href="/led100"><span>&#9881;</span> 100% </a>
+     <p><a class="button" href="/led0"><span>&#9881;</span> 0% </a><a class="button" href="/led20"><span>&#9881;</span> 20% </a></p>
+     <br>
+     <p><a class="button" href="/led50"><span>&#9881;</span> 50% </a><a class="button" href="/led80"><span>&#9881;</span> 80% </a></p>
+     <br>
+     <p><a class="button" href="/led100"><span>&#9881;</span> 100% </a></p>
      </div>
      <div>
       <br>
       <p class="checkbox-slider">Tapo plugs</p>
-     <a class="button" href="/p100"><span>&#9881;</span> Kitchen plug </a><a class="button" href="/p115"><span>&#9881;</span> Balcony </a>
-     
-     
+     <p><a class="button" href="/p100"><span>&#9881;</span> Kitchen plug </a>
+     <br><br>
+     <p><a class="button" href="/p115"><span>&#9881;</span> Balcony </a>
      </div>
+  </div>
+  <div class="settings-link">
+    <p style="font-size:12px;padding: 7px;"><span id="mpc_val">NA</span>
   </div>
   <script>
 
@@ -256,6 +261,17 @@
     xhttp.open("GET", "st3", true);
     xhttp.send();
   }
+  function getMpc() {
+    var xhttp = new XMLHttpRequest();
+    xhttp.onreadystatechange = function() {
+      console.log(this.responseText)
+      if (this.readyState == 4 && this.status == 200) {
+        document.getElementById("mpc_val").innerHTML = this.responseText;
+      }
+    };
+    xhttp.open("GET", "readMpc", true);
+    xhttp.send();
+  }
 
   setInterval(function()
   {
@@ -264,10 +280,16 @@
     getRelay3();
   }, 1000);
 
+  setInterval(function()
+  {
+    getMpc()
+  }, 3000);
+
   document.addEventListener("DOMContentLoaded", function() {
     getRelay1();
     getRelay2();
     getRelay3();
+    getMpc();
   });
 
 

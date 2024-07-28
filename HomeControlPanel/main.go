@@ -83,9 +83,24 @@ func main() {
 		w.Write([]byte(html)) // Отправка содержимого index.html
 	})
 
+	http.HandleFunc("/readMpc", func(w http.ResponseWriter, r *http.Request) {
+		st := handleReadMpc()
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(st))
+	})
+
 	log.Println("Server started. Port " + readCfg()[1])
 	http.ListenAndServe(":"+readCfg()[1], nil)
 
+}
+
+func handleReadMpc() string {
+	cmd := exec.Command("bash", "-c", "mpc")
+	stdout, err := cmd.Output()
+	if err != nil {
+		log.Fatalf("Error execute: %v", err)
+	}
+	return strings.ReplaceAll(string(stdout), "\n", "")
 }
 
 func handleStateHallway() string {
