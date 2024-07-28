@@ -1,8 +1,8 @@
 mjpeg_ip: 192.168.88.250:9998
 server_port: 9997
-hallway_on: echo "1" > sttest
-hallway_off: echo "0" > sttest
-hallway_state: ver
+hallway_on: gpio write 5 0
+hallway_off: gpio write 5 1
+hallway_state: gpio read 5
 wled_ip: 192.168.88.246
 kitchen_led: python3 /home/orange/gpio/QTMagicHome/magicCLI.py --color %s,0,0
 tapo: python3 /home/orange/gpio/tapo_switch.py --dev=%s --state=toggle

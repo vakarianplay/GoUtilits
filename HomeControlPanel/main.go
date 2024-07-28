@@ -155,8 +155,13 @@ func handleToggleSonoff() {
 	}
 }
 
-func kitchenLedController(bright int) string {
+func kitchenLedController(bright int) {
 	tempCmd := fmt.Sprintf(readCfg()[6], strconv.Itoa(bright))
+
+	cmd := exec.Command("bash", "-c", tempCmd)
+	if err := cmd.Run(); err != nil {
+		log.Println("Failed to execute command")
+		return
+	}
 	log.Println(tempCmd)
-	return tempCmd
 }
