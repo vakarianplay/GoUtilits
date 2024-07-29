@@ -9,11 +9,10 @@ import (
 )
 
 func readCfg() []string {
-
 	var cfgYaml map[string]interface{}
 	cfgFile, err := ioutil.ReadFile("config.yml")
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println(err)
 	}
 
 	err = yaml.Unmarshal(cfgFile, &cfgYaml)
