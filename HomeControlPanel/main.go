@@ -12,7 +12,6 @@ import (
 )
 
 func main() {
-	// Чтение содержимого файла index.html
 	htmlBytes, err := ioutil.ReadFile("index.html")
 	if err != nil {
 		log.Println("Error reading HTML file:", err)
@@ -23,7 +22,7 @@ func main() {
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(html)) // Отправка содержимого index.html
+		w.Write([]byte(html))
 	})
 
 	http.HandleFunc("/toggleRelay1", func(w http.ResponseWriter, r *http.Request) {
@@ -60,27 +59,27 @@ func main() {
 	http.HandleFunc("/led0", func(w http.ResponseWriter, r *http.Request) {
 		kitchenLedController(0)
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(html)) // Отправка содержимого index.html
+		w.Write([]byte(html))
 	})
 	http.HandleFunc("/led20", func(w http.ResponseWriter, r *http.Request) {
 		kitchenLedController(20)
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(html)) // Отправка содержимого index.html
+		w.Write([]byte(html))
 	})
 	http.HandleFunc("/led50", func(w http.ResponseWriter, r *http.Request) {
 		kitchenLedController(50)
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(html)) // Отправка содержимого index.html
+		w.Write([]byte(html))
 	})
 	http.HandleFunc("/led80", func(w http.ResponseWriter, r *http.Request) {
 		kitchenLedController(80)
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(html)) // Отправка содержимого index.html
+		w.Write([]byte(html))
 	})
 	http.HandleFunc("/led100", func(w http.ResponseWriter, r *http.Request) {
 		kitchenLedController(100)
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(html)) // Отправка содержимого index.html
+		w.Write([]byte(html))
 	})
 
 	http.HandleFunc("/readMpc", func(w http.ResponseWriter, r *http.Request) {
