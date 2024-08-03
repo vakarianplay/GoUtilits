@@ -115,7 +115,7 @@
     position:absolute;
      left:0px;
      bottom:0px;
-     height:60px;
+     height:85px;
      width:100%;
   }
 
@@ -126,10 +126,18 @@
         transform: translate(-50%, -50%);
       }
 
-	input.regulator {
-            width: 20px;
-            height: 20px;
-        }
+    .green-button {
+      background-color: green;
+      color: white;
+      padding: 5px 10px; 
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px; 
+      box-shadow: 0 2px 4px lightgreen;
+      text-decoration: none;
+    }
+    
   </style>
   </head>
   <body>
@@ -160,7 +168,8 @@
      </div>
   </div>
   <div class="settings-link">
-    <p style="font-size:12px;padding: 7px;"><span id="mpc_val">NA</span>
+    <p style="font-size:12px;padding: 7px;"><span id="mpc_val">NA</span></p>
+    <p><a class="green-button" href="/mpc_prew"> ◀ </a>&nbsp;<a class="green-button" href="/mpc_next"> ▶ </a></p>
   </div>
   <script>
 
