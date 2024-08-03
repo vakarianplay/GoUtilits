@@ -83,9 +83,19 @@ func main() {
 	})
 
 	http.HandleFunc("/readMpc", func(w http.ResponseWriter, r *http.Request) {
-		st := handleReadMpc()
+		st := handleMpc("read")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(st))
+	})
+	http.HandleFunc("/mpc_prev", func(w http.ResponseWriter, r *http.Request) {
+		_ = handleMpc("prev")
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(html))
+	})
+	http.HandleFunc("/mpc_next", func(w http.ResponseWriter, r *http.Request) {
+		_ = handleMpc("next")
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(html))
 	})
 
 	log.Println("Server started. Port " + readCfg()[1])
@@ -93,8 +103,15 @@ func main() {
 
 }
 
-func handleReadMpc() string {
-	cmd := exec.Command("bash", "-c", "mpc")
+func handleMpc(command string) string {
+	var cmdBash string
+	if command == "read" {
+		cmdBash = "mpc"
+	} else {
+		cmdBash = "mpc " + command
+	}
+
+	cmd := exec.Command("bash", "-c", cmdBash)
 	stdout, err := cmd.Output()
 	if err != nil {
 		log.Fatalf("Error execute: %v", err)
