@@ -81,7 +81,16 @@ func main() {
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte(html))
 	})
-
+	http.HandleFunc("/p100", func(w http.ResponseWriter, r *http.Request) {
+		handleTapo("P100")
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(html))
+	})
+	http.HandleFunc("/p115", func(w http.ResponseWriter, r *http.Request) {
+		handleTapo("P115")
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(html))
+	})
 	http.HandleFunc("/readMpc", func(w http.ResponseWriter, r *http.Request) {
 		st := handleMpc("read")
 		w.WriteHeader(http.StatusOK)
@@ -173,6 +182,15 @@ func handleToggleWLED() {
 		wledOn()
 	} else {
 		wledOff()
+	}
+}
+
+func handleTapo(dev string) {
+	cmdBash := fmt.Sprintf(readCfg()[7], dev)
+	cmd := exec.Command("bash", "-c", cmdBash)
+	if err := cmd.Run(); err != nil {
+		log.Println("Failed to execute command")
+		return
 	}
 }
 
