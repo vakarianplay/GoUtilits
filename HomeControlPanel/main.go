@@ -62,22 +62,22 @@ func main() {
 		w.Write([]byte(html))
 	})
 	http.HandleFunc("/led20", func(w http.ResponseWriter, r *http.Request) {
-		kitchenLedController(20)
-		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(html))
-	})
-	http.HandleFunc("/led50", func(w http.ResponseWriter, r *http.Request) {
 		kitchenLedController(50)
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte(html))
 	})
+	http.HandleFunc("/led50", func(w http.ResponseWriter, r *http.Request) {
+		kitchenLedController(128)
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(html))
+	})
 	http.HandleFunc("/led80", func(w http.ResponseWriter, r *http.Request) {
-		kitchenLedController(80)
+		kitchenLedController(204)
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte(html))
 	})
 	http.HandleFunc("/led100", func(w http.ResponseWriter, r *http.Request) {
-		kitchenLedController(100)
+		kitchenLedController(249)
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte(html))
 	})
