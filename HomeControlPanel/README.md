@@ -10,8 +10,7 @@ Working with GPIO-pins on orange pi
 
 ------------
 
-
-![image](https://github.com/user-attachments/assets/75419775-212d-4351-8515-fa545e778f1a)
+![Снимок экрана 2024-10-02 104530](https://github.com/user-attachments/assets/068f48f0-9b69-46b4-aa4d-3c2020564a80)
 
 
 
