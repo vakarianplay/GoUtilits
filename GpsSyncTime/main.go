@@ -12,11 +12,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fatih/color"
 	"github.com/tarm/serial"
 	"gopkg.in/yaml.v2"
 )
 
+var red *color.Color
+var yellow *color.Color
+var green *color.Color
+
 func main() {
+	red = color.New(color.FgRed, color.Italic, color.Bold, color.BlinkRapid)
+	yellow = color.New(color.FgHiYellow, color.Italic, color.Bold)
+	green = color.New(color.FgGreen)
 	// Настройки порта COM6
 	portName, baudrate := readCfg()
 	config := &serial.Config{
@@ -59,16 +67,19 @@ func main() {
 				// fmt.Println("Ошибка парсинга времени:", err)
 				continue
 			}
+
 			clearConsole()
+
+			red.Println("             ", "GPS-приемник подключен")
 			err = syncTime(timeValue)
 			if err != nil {
 				fmt.Println("Ошибка синхронизации времени:", err)
 			}
 
 			// Вывод данных
-			fmt.Printf("Широта: %.6f\n", latitude)
-			fmt.Printf("Долгота: %.6f\n", longitude)
-			fmt.Printf("GPS Время: %s\n\n", timeValue.Format("15:04:05"))
+			yellow.Printf("Широта: %.6f\n", latitude)
+			yellow.Printf("Долгота: %.6f\n", longitude)
+			yellow.Printf("GPS Время: %s\n\n", timeValue.Format("15:04:05"))
 		}
 
 	}
@@ -90,9 +101,6 @@ func readCfg() (string, int) {
 	port_ := fmt.Sprintf("%v", cfgYaml["port"])
 	baud_ := fmt.Sprintf("%v", cfgYaml["baud"])
 
-	// var out []string
-	// out = append(out, port_, baud_)
-
 	// return out
 	baud, _ := strconv.Atoi(baud_)
 	return port_, baud
@@ -110,12 +118,6 @@ func syncTime(gpsTime time.Time) error {
 
 	// Получаем текущее системное время с учетом часового пояса
 	currentTime := time.Now().In(location)
-
-	// Разница между системным и GPS временем
-	// diff := currentTime.Sub(gpsTimeLocal)
-
-	// Корректируем системное время на разницу
-	// adjustedTime := currentTime.Add(-diff)
 	adjustedTime, _ := createAdjustedTime(currentTime, gpsTimeLocal.Format("15:04:05"))
 
 	// Устанавливаем новое системное время
@@ -140,7 +142,7 @@ func syncTime(gpsTime time.Time) error {
 		}
 	}
 
-	fmt.Println("Скорректированное время: ", adjustedTime.Format("2006-01-02 15:04:05"))
+	green.Println("Скорректированное время: ", adjustedTime.Format("2006-01-02 15:04:05"))
 	return nil
 }
 
