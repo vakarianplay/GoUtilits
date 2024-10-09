@@ -25,7 +25,7 @@ func main() {
 	red = color.New(color.FgRed, color.Italic, color.Bold, color.BlinkRapid)
 	yellow = color.New(color.FgHiYellow, color.Italic, color.Bold)
 	green = color.New(color.FgGreen)
-	// Настройки порта COM6
+
 	portName, baudrate := readCfg()
 	config := &serial.Config{
 		Name:        portName,
