@@ -41,7 +41,6 @@ func main() {
 	}
 	defer port.Close()
 
-	// Чтение данных с порта
 	reader := bufio.NewReader(port)
 	for {
 		line, err := reader.ReadString('\n')
@@ -76,7 +75,6 @@ func main() {
 				fmt.Println("Ошибка синхронизации времени:", err)
 			}
 
-			// Вывод данных
 			yellow.Printf("Широта: %.6f\n", latitude)
 			yellow.Printf("Долгота: %.6f\n", longitude)
 			yellow.Printf("GPS Время: %s\n\n", timeValue.Format("15:04:05"))
@@ -107,22 +105,17 @@ func readCfg() (string, int) {
 }
 
 func syncTime(gpsTime time.Time) error {
-	// Получаем текущий часовой пояс
 	location, err := time.LoadLocation("Local")
 	if err != nil {
-		return fmt.Errorf("ошибка получения часового пояса: %w", err)
+		return fmt.Errorf("%w", err)
 	}
 
-	// Преобразуем GPS-время в локальный часовой пояс
 	gpsTimeLocal := gpsTime.In(location)
 
-	// Получаем текущее системное время с учетом часового пояса
 	currentTime := time.Now().In(location)
 	adjustedTime, _ := createAdjustedTime(currentTime, gpsTimeLocal.Format("15:04:05"))
 
-	// Устанавливаем новое системное время
 	if runtime.GOOS == "windows" {
-		// Для Windows:
 		timeCmd := exec.Command("time", adjustedTime.Format("15:04:05"))
 		err = timeCmd.Run()
 		if err != nil {
@@ -134,15 +127,13 @@ func syncTime(gpsTime time.Time) error {
 			return fmt.Errorf("ошибка установки системного времени: %w", err)
 		}
 	} else {
-		// Для Linux:
 		dateCmd := exec.Command("sudo", "date", "-s", adjustedTime.Format("2006-01-02T15:04:05"))
 		err = dateCmd.Run()
 		if err != nil {
 			return fmt.Errorf("ошибка установки системного времени: %w", err)
-		}
+		green.Println("Скорректированное время: ", currentTime.Format("2006-01-02 15:04:05"))
 	}
 
-	green.Println("Скорректированное время: ", adjustedTime.Format("2006-01-02 15:04:05"))
 	return nil
 }
 

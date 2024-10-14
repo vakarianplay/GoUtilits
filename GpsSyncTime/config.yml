@@ -1,2 +1,2 @@
-port: COM7
+port: /dev/ttyUSBS0
 baud: 4800
