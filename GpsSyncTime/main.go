@@ -131,10 +131,11 @@ func syncTime(gpsTime time.Time) error {
 		err = dateCmd.Run()
 		if err != nil {
 			return fmt.Errorf("ошибка установки системного времени: %w", err)
-		green.Println("Скорректированное время: ", currentTime.Format("2006-01-02 15:04:05"))
+			green.Println("Скорректированное время: ", currentTime.Format("2006-01-02 15:04:05"))
+		}
 	}
-
 	return nil
+
 }
 
 func createAdjustedTime(currentTime time.Time, gpsTime string) (time.Time, error) {

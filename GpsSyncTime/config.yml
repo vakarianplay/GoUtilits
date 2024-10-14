@@ -1,2 +1,2 @@
-port: /dev/ttyUSBS0
+port: /dev/ttyUSB0
 baud: 4800
