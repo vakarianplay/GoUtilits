@@ -26,7 +26,7 @@ func main() {
 	yellow = color.New(color.FgHiYellow, color.Italic, color.Bold)
 	green = color.New(color.FgGreen)
 
-	portName, baudrate := readCfg()
+	portName, baudrate, recLog, logFile := readCfg()
 	config := &serial.Config{
 		Name:        portName,
 		Baud:        baudrate,
@@ -44,7 +44,9 @@ func main() {
 	reader := bufio.NewReader(port)
 	for {
 		line, err := reader.ReadString('\n')
-		comportWriter("outGNNS", line)
+		if recLog {
+			comportWriter(logFile, line)
+		}
 		if err != nil {
 			if err == io.EOF {
 				fmt.Println("Соединение закрыто")
@@ -72,7 +74,6 @@ func main() {
 			if err != nil {
 				fmt.Println("Ошибка синхронизации времени:", err)
 			}
-
 			yellow.Printf("Широта: %.6f\n", latitude)
 			yellow.Printf("Долгота: %.6f\n", longitude)
 			yellow.Printf("GPS Время: %s\n\n", timeValue.Format("15:04:05"))
@@ -81,7 +82,7 @@ func main() {
 	}
 }
 
-func readCfg() (string, int) {
+func readCfg() (string, int, bool, string) {
 
 	var cfgYaml map[string]interface{}
 	cfgFile, err := os.ReadFile("config.yml")
@@ -96,10 +97,13 @@ func readCfg() (string, int) {
 	}
 	port_ := fmt.Sprintf("%v", cfgYaml["port"])
 	baud_ := fmt.Sprintf("%v", cfgYaml["baud"])
+	rec_ := fmt.Sprintf("%v", cfgYaml["rec_log"])
+	logfile_ := fmt.Sprintf("%v", cfgYaml["log_file"])
 
 	// return out
+	recF, _ := strconv.ParseBool(rec_)
 	baud, _ := strconv.Atoi(baud_)
-	return port_, baud
+	return port_, baud, recF, logfile_
 }
 
 func syncTime(gpsTime time.Time) error {
