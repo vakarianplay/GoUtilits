@@ -44,6 +44,7 @@ func main() {
 	reader := bufio.NewReader(port)
 	for {
 		line, err := reader.ReadString('\n')
+		comportWriter("outGNNS", line)
 		if err != nil {
 			if err == io.EOF {
 				fmt.Println("Соединение закрыто")
@@ -53,14 +54,11 @@ func main() {
 			continue
 		}
 
-		// Парсинг данных GPS
 		data := strings.Split(strings.TrimSpace(string(line)), ",")
-		if len(data) >= 10 { // Проверяем наличие достаточного количества данных
+		if len(data) >= 10 {
 			latitude, _ := strconv.ParseFloat(data[2], 64)
 			longitude, _ := strconv.ParseFloat(data[4], 64)
 			timeString := data[1] // Строка с временем
-
-			// Преобразование времени из формата GPS
 			timeValue, err := time.Parse("150405", timeString)
 			if err != nil {
 				// fmt.Println("Ошибка парсинга времени:", err)
@@ -134,8 +132,8 @@ func syncTime(gpsTime time.Time) error {
 			green.Println("Скорректированное время: ", currentTime.Format("2006-01-02 15:04:05"))
 		}
 	}
-	return nil
 
+	return nil
 }
 
 func createAdjustedTime(currentTime time.Time, gpsTime string) (time.Time, error) {
@@ -159,4 +157,18 @@ func clearConsole() {
 		cmd.Stdout = os.Stdout
 		cmd.Run()
 	}
+}
+
+func comportWriter(filename string, line string) error {
+	file, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("не удалось открыть файл: %v", err)
+	}
+	defer file.Close()
+	currentTime := time.Now().Format("2006-01-02 15:04:05")
+	entry := fmt.Sprintf("[%s] %s\n", currentTime, line)
+	if _, err := file.WriteString(entry); err != nil {
+		return fmt.Errorf("не удалось записать в файл: %v", err)
+	}
+	return nil
 }
