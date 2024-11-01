@@ -17,8 +17,10 @@ Working on windows and linux.
 ### config.yml caption
 
 ```yaml
-port: /dev/ttyUSBS0
-baud: 4800
+port: /dev/ttyUSB0
+baud: 4800          
+rec_log: true
+log_file: GNNSlog.txt
 ```
 
 
