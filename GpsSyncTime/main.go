@@ -107,34 +107,33 @@ func readCfg() (string, int, bool, string) {
 }
 
 func syncTime(gpsTime time.Time) error {
-	location, err := time.LoadLocation("Local")
+	location, err := time.LoadLocation("Etc/GMT-3")
+
 	if err != nil {
 		return fmt.Errorf("%w", err)
 	}
-
 	gpsTimeLocal := gpsTime.In(location)
-
 	currentTime := time.Now().In(location)
 	adjustedTime, _ := createAdjustedTime(currentTime, gpsTimeLocal.Format("15:04:05"))
 
 	if runtime.GOOS == "windows" {
-		timeCmd := exec.Command("time", adjustedTime.Format("15:04:05"))
+		timeCmd := exec.Command("cmd.exe", "/C", "time", adjustedTime.Format("15:04:05"))
 		err = timeCmd.Run()
 		if err != nil {
 			return fmt.Errorf("ошибка установки системного времени: %w", err)
 		}
-		dateCmd := exec.Command("date", adjustedTime.Format("MM-dd-yyyy"))
+		dateCmd := exec.Command("cmd.exe", "/C", "date", adjustedTime.Format("02-01-2006"))
 		err = dateCmd.Run()
 		if err != nil {
 			return fmt.Errorf("ошибка установки системного времени: %w", err)
 		}
 	} else {
-		dateCmd := exec.Command("sudo", "date", "-s", adjustedTime.Format("2006-01-02T15:04:05"))
+		dateCmd := exec.Command("sudo", "date", "-s", adjustedTime.Format("2006-01-02 15:04:05"))
 		err = dateCmd.Run()
 		if err != nil {
 			return fmt.Errorf("ошибка установки системного времени: %w", err)
-			green.Println("Скорректированное время: ", currentTime.Format("2006-01-02 15:04:05"))
 		}
+		green.Println("Скорректированное время: ", adjustedTime.Format("2006-01-02 15:04:05"))
 	}
 
 	return nil
