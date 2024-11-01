@@ -24,4 +24,5 @@ log_file: GNNSlog.txt
 ```
 
 
-![Screenshot_20241010_083935](https://github.com/user-attachments/assets/eb421d9e-2499-486d-86a7-6cb4b6ca5d60)
+
+![Screenshot_20241101_130525](https://github.com/user-attachments/assets/ac1e4a40-3b84-47a2-9f49-42d7498e61b1)
