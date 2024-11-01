@@ -107,7 +107,7 @@ func readCfg() (string, int, bool, string) {
 }
 
 func syncTime(gpsTime time.Time) error {
-	location, err := time.LoadLocation("Etc/GMT-3")
+	location, err := time.LoadLocation("Local")
 
 	if err != nil {
 		return fmt.Errorf("%w", err)
