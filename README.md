@@ -42,3 +42,22 @@ Lightweight minimalistic web server for opening access to a directory via http
 For windows x64, linux x64, linux arm, arm64, risc-v
 
 https://github.com/vakarianplay/GoClients/releases/tag/webshare
+
+-----------------------------------------
+-----------------------------------------
+
+# [GpsSyncTime](https://github.com/vakarianplay/GoUtilits/tree/main/GpsSyncTime)
+
+CLI util for synchronize system time from GPS reciver
+
+![alt text](https://img.shields.io/badge/Golang-1.21.1-blue?style=flat-square&logo=go)
+
+![alt text](https://img.shields.io/badge/Status-in%20complete-2E8B57?style=for-the-badge&logo=Buddy)
+
+## Releases: 
+
+For windows x64, linux x64, linux arm, arm64, risc-v
+
+[https://github.com/vakarianplay/GoClients/releases/tag/webshare](https://github.com/vakarianplay/GoUtilits/releases/tag/gpstime)
+
+![Screenshot_20241101_130525](https://github.com/user-attachments/assets/ac1e4a40-3b84-47a2-9f49-42d7498e61b1)
