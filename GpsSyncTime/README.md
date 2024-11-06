@@ -10,7 +10,7 @@ Working on windows and linux.
 ----------------------------
 
 ## RELEASES:
-
+https://github.com/vakarianplay/GoUtilits/releases/tag/gpstime
 
 ---------------------
 
