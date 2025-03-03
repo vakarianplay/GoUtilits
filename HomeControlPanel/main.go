@@ -123,9 +123,16 @@ func handleMpc(command string) string {
 	cmd := exec.Command("bash", "-c", cmdBash)
 	stdout, err := cmd.Output()
 	if err != nil {
-		log.Fatalf("Error execute: %v", err)
+		// log.Fatalf("Error execute: %v", err)
+		// log.Println("Mpc Error")
 	}
-	return strings.ReplaceAll(string(stdout), "\n", "")
+
+	outResult := string(stdout)
+	if len(outResult) > 1 {
+		return strings.ReplaceAll(string(stdout), "\n", "")
+	} else {
+		return "Mpc Error"
+	}
 }
 
 func handleStateHallway() string {
