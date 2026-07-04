@@ -1,11 +1,18 @@
-server_port: 9997
+server_port: 10001
 
 devices_linux_shell:
-    - name: MySmartSwitch
+    - name: Коридор
       type: relay
       status_command: gpio read 5
       on_command: gpio write 5 0
       off_command: gpio write 5 1
+
+    - name: Лента
+      type: relay
+      status_command: gpio read 4
+      on_command: gpio write 4 0
+      off_command: gpio write 4 1
+
 
     - name: MagicHomeLed
       type: ledstrip_mono
