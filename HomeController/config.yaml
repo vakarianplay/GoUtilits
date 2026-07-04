@@ -1,0 +1,54 @@
+server_port: 9997
+
+devices_linux_shell:
+    - name: MySmartSwitch
+      type: relay
+      status_command: gpio read 5
+      on_command: gpio write 5 0
+      off_command: gpio write 5 1
+
+    - name: MagicHomeLed
+      type: ledstrip_mono
+      on_command: python3 /home/orange/gpio/QTMagicHome/magicCLI.py --color 255,0,0
+      off_command: python3 /home/orange/gpio/QTMagicHome/magicCLI.py --color 0,0,0
+      bright_command: python3 /home/orange/gpio/QTMagicHome/magicCLI.py --color %s,0,0
+
+    # - name: MagicHomeColor
+    #   type: ledstrip_color
+    #   on_command: python3 /home/orange/gpio/QTMagicHome/magicCLI.py --color 255,0,0
+    #   off_command: python3 /home/orange/gpio/QTMagicHome/magicCLI.py --color 255,0,0
+    #   color_command: python3 /home/orange/gpio/QTMagicHome/magicCLI.py --color %s,%s,%s #R,G,B
+
+    - name: Балкон
+      type: relay_dump
+      toggle_command: python3 /home/orange/gpio/tapo_switch.py --dev=P115 --state=toggle
+
+    - name: Lamp
+      type: color_lamp
+      on_command: python3 /home/orange/gpio/tapo_switch.py --dev=L530 --state=on
+      off_command: python3 /home/orange/gpio/tapo_switch.py --dev=L530 --state=off
+      bright_command: python3 /home/orange/gpio/tapo_switch.py --dev=L530 --bright=%s
+      colortemp_command: python3 /home/orange/gpio/tapo_switch.py --dev=L530 --temp=%s #kelvin
+      color_command: python3 /home/orange/gpio/tapo_switch.py --dev=L530 --color %s,%s #hue, saturation
+
+devices_http:
+    - name: wledStrip
+      type: wled
+      url: 192.168.88.246
+
+    - name: EspRelay
+      type: wifirelay
+      status_url: 192.168.88.253
+      on_url: 192.168.88.253/on
+      off_url: 192.168.88.253/off
+
+    - name: Plantwater
+      type: dump_url
+      url: http://192.168.88.251/control?cmd=LongPulse_mS,12,1,20000
+
+    - name: Climate
+      type: espmega_sensors
+      url: http://192.168.88.252/json
+
+
+
