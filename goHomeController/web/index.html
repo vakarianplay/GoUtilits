@@ -1,0 +1,762 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Smart Home Controller</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 16px;
+            background: #f4f4f4;
+        }
+        h2 { margin-bottom: 12px; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 12px;
+        }
+        .card {
+            background: #fff;
+            border-radius: 10px;
+            padding: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        .name { font-weight: bold; margin-bottom: 6px; }
+        .meta { color: #666; font-size: 12px; margin-bottom: 8px; }
+        .row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+        .section-title {
+            font-size: 12px;
+            color: #444;
+            margin-top: 8px;
+            margin-bottom: 6px;
+        }
+        button {
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: #fafafa;
+            cursor: pointer;
+        }
+        button:hover { background: #f0f0f0; }
+        input[type="number"], input[type="range"], select {
+            width: 140px;
+        }
+        .status {
+            background: #eef5ff;
+            color: #1b3f6b;
+            border-radius: 6px;
+            padding: 6px 8px;
+            font-size: 12px;
+            min-height: 24px;
+            white-space: pre-wrap;
+            margin-bottom: 8px;
+        }
+        .log {
+            background: #111;
+            color: #0f0;
+            border-radius: 6px;
+            padding: 8px;
+            font-size: 12px;
+            min-height: 34px;
+            white-space: pre-wrap;
+        }
+        .small { font-size: 12px; color: #666; }
+
+        .switch-wrap {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 52px;
+            height: 28px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            inset: 0;
+            background-color: #ccc;
+            transition: .2s;
+            border-radius: 28px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 22px;
+            width: 22px;
+            left: 3px;
+            top: 3px;
+            background-color: white;
+            transition: .2s;
+            border-radius: 50%;
+        }
+        .switch input:checked + .slider {
+            background-color: #4caf50;
+        }
+        .switch input:checked + .slider:before {
+            transform: translateX(24px);
+        }
+        .relay-state-text {
+            font-size: 12px;
+            color: #333;
+            min-width: 64px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Устройства</h2>
+    <div class="small">Автообновление статусов: каждые 5 секунд</div>
+    <div id="devices" class="grid"></div>
+
+    <script>
+        const cards = new Map();
+        let devicesCache = [];
+
+        function supports(dev, action) {
+            return Array.isArray(dev.actions) && dev.actions.includes(action);
+        }
+
+        async function apiAction(deviceId, action, params = {}) {
+            const resp = await fetch(`/api/device/${deviceId}/action`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action, params })
+            });
+            return resp.json();
+        }
+
+        function hexToRgb(hex) {
+            const clean = hex.replace("#", "");
+            const n = parseInt(clean, 16);
+            return {
+                r: (n >> 16) & 255,
+                g: (n >> 8) & 255,
+                b: n & 255
+            };
+        }
+
+        function rgbToHs(r, g, b) {
+            r /= 255; g /= 255; b /= 255;
+            const max = Math.max(r, g, b), min = Math.min(r, g, b);
+            const d = max - min;
+            let h = 0;
+            const s = max === 0 ? 0 : d / max;
+
+            if (d !== 0) {
+                if (max === r) h = ((g - b) / d) % 6;
+                else if (max === g) h = (b - r) / d + 2;
+                else h = (r - g) / d + 4;
+                h = Math.round(h * 60);
+                if (h < 0) h += 360;
+            }
+            return { h, s: Math.round(s * 100) };
+        }
+
+        function normalizeText(s) {
+            return String(s || "").trim().toLowerCase().replace(/^"+|"+$/g, "");
+        }
+
+        function parseRelayState(output, relayOnValue = "1") {
+            const t = normalizeText(output);
+            const onVal = normalizeText(relayOnValue || "1");
+
+            if (t === "1" || t === "0") return t === onVal;
+            if (t === "on" || t === "true") return true;
+            if (t === "off" || t === "false") return false;
+
+            const m = t.match(/(^|[^0-9])(0|1)([^0-9]|$)/);
+            if (m && m[2]) return m[2] === onVal;
+
+            return null;
+        }
+
+        function formatWledStatus(output) {
+            try {
+                const st = JSON.parse(output);
+                const on = st.on ? "ON" : "OFF";
+                const bri = Number.isInteger(st.bri) ? st.bri : "-";
+                let fx = "-";
+                let pal = "-";
+                if (Array.isArray(st.seg) && st.seg.length > 0) {
+                    fx = st.seg[0].fx ?? "-";
+                    pal = st.seg[0].pal ?? "-";
+                }
+                return `WLED ${on}, bri=${bri}, fx=${fx}, pal=${pal}`;
+            } catch {
+                return `status: ${output}`;
+            }
+        }
+        function formatSensorValue(raw, nrDecimals) {
+            if (typeof raw === "number") {
+                if (!Number.isFinite(raw)) return "—";
+                const d = Number.isInteger(nrDecimals) ? nrDecimals : 2;
+                if (d >= 0 && d <= 6) return raw.toFixed(d);
+                return String(raw);
+            }
+
+            if (typeof raw === "string") {
+                const t = raw.trim().toLowerCase();
+                if (t === "nan" || t === "inf" || t === "-inf") return "—";
+                return raw;
+            }
+
+            if (raw === null || raw === undefined) return "—";
+            return String(raw);
+        }
+
+        function formatEspMegaStatus(output) {
+            try {
+                const data = JSON.parse(output);
+                const sensors = Array.isArray(data?.Sensors) ? data.Sensors : [];
+
+                if (sensors.length === 0) {
+                    return "Нет блока Sensors";
+                }
+
+                const lines = [];
+
+                sensors.forEach((sensor, idx) => {
+                    const taskName =
+                        sensor?.TaskName && String(sensor.TaskName).trim() !== ""
+                            ? String(sensor.TaskName)
+                            : `Task ${idx + 1}`;
+
+                    const taskValues = Array.isArray(sensor?.TaskValues)
+                        ? sensor.TaskValues
+                        : [];
+
+                    if (taskValues.length === 0) return;
+
+                    lines.push(`${taskName}:`);
+
+                    taskValues.forEach((tv) => {
+                        const name =
+                            tv?.Name && String(tv.Name).trim() !== ""
+                                ? String(tv.Name)
+                                : `Value ${tv?.ValueNumber ?? ""}`.trim();
+
+                        const value = formatSensorValue(tv?.Value, tv?.NrDecimals);
+                        lines.push(`- ${name}: ${value}`);
+                    });
+
+                    lines.push("");
+                });
+
+                if (lines.length === 0) {
+                    return "В Sensors нет TaskValues";
+                }
+
+                return lines.join("\n").trim();
+            } catch {
+                return `status: ${output}`;
+            }
+        }
+
+        async function callAndLog(dev, logEl, action, params = {}, refresh = true) {
+            try {
+                const r = await apiAction(dev.id, action, params);
+                logEl.textContent = JSON.stringify(r, null, 2);
+                if (refresh) await refreshDeviceStatus(dev.id, true);
+            } catch (e) {
+                logEl.textContent = "Ошибка: " + e.message;
+            }
+        }
+
+        function addBasicButtons(card, dev, logEl) {
+            const row = document.createElement("div");
+            row.className = "row";
+
+            if (supports(dev, "status")) {
+                const statusBtn = document.createElement("button");
+                statusBtn.textContent = "Status";
+                statusBtn.onclick = () => refreshDeviceStatus(dev.id, false);
+                row.appendChild(statusBtn);
+            }
+
+            if (dev.type !== "relay" && dev.type !== "wifirelay") {
+                if (supports(dev, "on")) {
+                    const onBtn = document.createElement("button");
+                    onBtn.textContent = "On";
+                    onBtn.onclick = () => callAndLog(dev, logEl, "on");
+                    row.appendChild(onBtn);
+                }
+
+                if (supports(dev, "off")) {
+                    const offBtn = document.createElement("button");
+                    offBtn.textContent = "Off";
+                    offBtn.onclick = () => callAndLog(dev, logEl, "off");
+                    row.appendChild(offBtn);
+                }
+            }
+
+            if (row.children.length > 0) {
+                card.appendChild(row);
+            }
+        }
+
+        function addRelaySwitch(card, dev, logEl) {
+            if (!supports(dev, "on") || !supports(dev, "off")) return null;
+
+            const wrap = document.createElement("div");
+            wrap.className = "switch-wrap";
+
+            const lbl = document.createElement("label");
+            lbl.className = "switch";
+
+            const input = document.createElement("input");
+            input.type = "checkbox";
+
+            const slider = document.createElement("span");
+            slider.className = "slider";
+
+            lbl.append(input, slider);
+
+            const txt = document.createElement("span");
+            txt.className = "relay-state-text";
+            txt.textContent = "unknown";
+
+            let suppress = false;
+            input.addEventListener("change", async () => {
+                if (suppress) return;
+                const action = input.checked ? "on" : "off";
+                await callAndLog(dev, logEl, action, {}, true);
+            });
+
+            wrap.append(lbl, txt);
+            card.appendChild(wrap);
+
+            return {
+                input,
+                text: txt,
+                setState(isOn, rawText = "") {
+                    suppress = true;
+                    input.checked = !!isOn;
+                    suppress = false;
+                    txt.textContent = isOn ? "ON" : "OFF";
+                    if (rawText) txt.title = rawText;
+                },
+                setUnknown(rawText = "") {
+                    txt.textContent = "unknown";
+                    if (rawText) txt.title = rawText;
+                }
+            };
+        }
+
+        function addToggleButton(card, dev, logEl) {
+            if (!supports(dev, "toggle")) return;
+
+            const row = document.createElement("div");
+            row.className = "row";
+
+            const btn = document.createElement("button");
+            btn.textContent = "Toggle";
+            btn.onclick = () => callAndLog(dev, logEl, "toggle", {}, false);
+
+            row.append(btn);
+            card.appendChild(row);
+        }
+
+        function addBrightness(card, dev, logEl) {
+            if (!supports(dev, "bright")) return;
+
+            const row = document.createElement("div");
+            row.className = "row";
+
+            const range = document.createElement("input");
+            range.type = "range";
+            range.min = "0";
+            range.max = "255";
+            range.value = "128";
+
+            const val = document.createElement("span");
+            val.textContent = range.value;
+            range.oninput = () => val.textContent = range.value;
+
+            const btn = document.createElement("button");
+            btn.textContent = "Set bright";
+            btn.onclick = () => callAndLog(dev, logEl, "bright", { value: range.value });
+
+            row.append("Bright:", range, val, btn);
+            card.appendChild(row);
+        }
+
+        function addColorRGB(card, dev, logEl) {
+            if (!supports(dev, "color")) return;
+
+            const row = document.createElement("div");
+            row.className = "row";
+
+            const color = document.createElement("input");
+            color.type = "color";
+            color.value = "#ff0000";
+
+            const btn = document.createElement("button");
+            btn.textContent = "Set color";
+            btn.onclick = () => {
+                const rgb = hexToRgb(color.value);
+                callAndLog(dev, logEl, "color", {
+                    r: String(rgb.r),
+                    g: String(rgb.g),
+                    b: String(rgb.b)
+                });
+            };
+
+            row.append("Color:", color, btn);
+            card.appendChild(row);
+        }
+
+        function addColorHS(card, dev, logEl) {
+            if (!supports(dev, "color")) return;
+
+            const row = document.createElement("div");
+            row.className = "row";
+
+            const color = document.createElement("input");
+            color.type = "color";
+            color.value = "#ff0000";
+
+            const btn = document.createElement("button");
+            btn.textContent = "Set lamp color";
+            btn.onclick = () => {
+                const rgb = hexToRgb(color.value);
+                const hs = rgbToHs(rgb.r, rgb.g, rgb.b);
+                callAndLog(dev, logEl, "color", {
+                    h: String(hs.h),
+                    s: String(hs.s)
+                });
+            };
+
+            row.append("Color:", color, btn);
+            card.appendChild(row);
+        }
+
+        function addColorTemp(card, dev, logEl) {
+            if (!supports(dev, "colortemp")) return;
+
+            const row = document.createElement("div");
+            row.className = "row";
+
+            const temp = document.createElement("input");
+            temp.type = "number";
+            temp.value = "4000";
+            temp.min = "2000";
+            temp.max = "6500";
+            temp.step = "100";
+
+            const btn = document.createElement("button");
+            btn.textContent = "Set temp";
+            btn.onclick = () => callAndLog(dev, logEl, "colortemp", { value: temp.value });
+
+            row.append("K:", temp, btn);
+            card.appendChild(row);
+        }
+
+        function addTrigger(card, dev, logEl) {
+            if (!supports(dev, "trigger")) return;
+
+            const row = document.createElement("div");
+            row.className = "row";
+
+            const btn = document.createElement("button");
+            btn.textContent = "Trigger";
+            btn.onclick = () => callAndLog(dev, logEl, "trigger", {}, false);
+
+            row.append(btn);
+            card.appendChild(row);
+        }
+
+        function addWledAdvanced(card, dev, logEl) {
+            if (!supports(dev, "set_effect")) return;
+
+            const title = document.createElement("div");
+            title.className = "section-title";
+            title.textContent = "WLED effects";
+            card.appendChild(title);
+
+            const row1 = document.createElement("div");
+            row1.className = "row";
+
+            const fxSel = document.createElement("select");
+            fxSel.innerHTML = `<option value="">effect...</option>`;
+
+            const palSel = document.createElement("select");
+            palSel.innerHTML = `<option value="">palette...</option>`;
+
+            const loadBtn = document.createElement("button");
+            loadBtn.textContent = "Load effects";
+            loadBtn.onclick = async () => {
+                try {
+                    if (supports(dev, "effects")) {
+                        const effResp = await apiAction(dev.id, "effects");
+                        if (effResp.ok) {
+                            const arr = JSON.parse(effResp.output);
+                            fxSel.innerHTML = "";
+                            arr.forEach((name, idx) => {
+                                const o = document.createElement("option");
+                                o.value = String(idx);
+                                o.textContent = `${idx}: ${name}`;
+                                fxSel.appendChild(o);
+                            });
+                        }
+                    }
+
+                    if (supports(dev, "palettes")) {
+                        const palResp = await apiAction(dev.id, "palettes");
+                        if (palResp.ok) {
+                            const arr = JSON.parse(palResp.output);
+                            palSel.innerHTML = `<option value="">(no change)</option>`;
+                            arr.forEach((name, idx) => {
+                                const o = document.createElement("option");
+                                o.value = String(idx);
+                                o.textContent = `${idx}: ${name}`;
+                                palSel.appendChild(o);
+                            });
+                        }
+                    }
+                } catch (e) {
+                    logEl.textContent = "Ошибка загрузки эффектов: " + e.message;
+                }
+            };
+
+            row1.append(loadBtn, fxSel, palSel);
+            card.appendChild(row1);
+
+            const row2 = document.createElement("div");
+            row2.className = "row";
+
+            const sx = document.createElement("input");
+            sx.type = "range";
+            sx.min = "0";
+            sx.max = "255";
+            sx.value = "128";
+            const sxVal = document.createElement("span");
+            sxVal.textContent = sx.value;
+            sx.oninput = () => sxVal.textContent = sx.value;
+
+            const ix = document.createElement("input");
+            ix.type = "range";
+            ix.min = "0";
+            ix.max = "255";
+            ix.value = "128";
+            const ixVal = document.createElement("span");
+            ixVal.textContent = ix.value;
+            ix.oninput = () => ixVal.textContent = ix.value;
+
+            const applyBtn = document.createElement("button");
+            applyBtn.textContent = "Apply effect";
+            applyBtn.onclick = () => {
+                if (!fxSel.value) {
+                    logEl.textContent = "Сначала выбери эффект";
+                    return;
+                }
+                const params = {
+                    fx: fxSel.value,
+                    sx: sx.value,
+                    ix: ix.value
+                };
+                if (palSel.value !== "") params.pal = palSel.value;
+                callAndLog(dev, logEl, "set_effect", params);
+            };
+
+            row2.append("Speed:", sx, sxVal, "Intensity:", ix, ixVal, applyBtn);
+            card.appendChild(row2);
+
+            const row3 = document.createElement("div");
+            row3.className = "row";
+
+            if (supports(dev, "preset")) {
+                const preset = document.createElement("input");
+                preset.type = "number";
+                preset.min = "1";
+                preset.value = "1";
+
+                const presetBtn = document.createElement("button");
+                presetBtn.textContent = "Apply preset";
+                presetBtn.onclick = () => callAndLog(dev, logEl, "preset", { id: preset.value });
+
+                row3.append("Preset:", preset, presetBtn);
+            }
+
+            if (supports(dev, "toggle_random")) {
+                const rndBtn = document.createElement("button");
+                rndBtn.textContent = "Toggle random";
+                rndBtn.onclick = () => callAndLog(dev, logEl, "toggle_random", {}, true);
+                row3.append(rndBtn);
+            }
+
+            if (row3.children.length > 0) {
+                card.appendChild(row3);
+            }
+        }
+
+        function createDeviceCard(dev) {
+            const card = document.createElement("div");
+            card.className = "card";
+
+            const name = document.createElement("div");
+            name.className = "name";
+            name.textContent = dev.name;
+
+            const meta = document.createElement("div");
+            meta.className = "meta";
+            meta.textContent = `${dev.type} (${dev.source})`;
+
+            const statusEl = document.createElement("div");
+            statusEl.className = "status";
+            statusEl.textContent = "status: -";
+
+            const logEl = document.createElement("div");
+            logEl.className = "log";
+            logEl.textContent = "ready";
+
+            card.append(name, meta, statusEl);
+
+            let relayUI = null;
+            if (dev.type === "relay" || dev.type === "wifirelay") {
+                relayUI = addRelaySwitch(card, dev, logEl);
+            }
+
+            switch (dev.type) {
+                case "relay":
+                    addBasicButtons(card, dev, logEl);
+                    break;
+                case "relay_dump":
+                    addBasicButtons(card, dev, logEl);
+                    addToggleButton(card, dev, logEl);
+                    break;
+                case "ledstrip_mono":
+                    addBasicButtons(card, dev, logEl);
+                    addBrightness(card, dev, logEl);
+                    break;
+                case "ledstrip_color":
+                    addBasicButtons(card, dev, logEl);
+                    addColorRGB(card, dev, logEl);
+                    break;
+                case "color_lamp":
+                    addBasicButtons(card, dev, logEl);
+                    addBrightness(card, dev, logEl);
+                    addColorTemp(card, dev, logEl);
+                    addColorHS(card, dev, logEl);
+                    break;
+                case "wled":
+                    addBasicButtons(card, dev, logEl);
+                    addBrightness(card, dev, logEl);
+                    addColorRGB(card, dev, logEl);
+                    addWledAdvanced(card, dev, logEl);
+                    break;
+                case "wifirelay":
+                    addBasicButtons(card, dev, logEl);
+                    break;
+                case "espmega_sensors":
+                    addBasicButtons(card, dev, logEl);
+                    break;
+                case "dump_url":
+                    addTrigger(card, dev, logEl);
+                    break;
+                default:
+                    if (Array.isArray(dev.actions)) {
+                        const row = document.createElement("div");
+                        row.className = "row";
+                        dev.actions.forEach(action => {
+                            const b = document.createElement("button");
+                            b.textContent = action;
+                            b.onclick = () => callAndLog(dev, logEl, action);
+                            row.appendChild(b);
+                        });
+                        card.appendChild(row);
+                    }
+            }
+
+            card.appendChild(logEl);
+            return { card, statusEl, logEl, dev, relayUI };
+        }
+
+        async function refreshDeviceStatus(deviceId, silent = true) {
+            const info = cards.get(deviceId);
+            if (!info) return;
+            if (!supports(info.dev, "status")) return;
+
+            try {
+                const r = await apiAction(deviceId, "status");
+                if (!r.ok) {
+                    info.statusEl.textContent = `status error: ${r.error || "unknown"}`;
+                    if (info.relayUI) info.relayUI.setUnknown(r.error || "");
+                    if (!silent) info.logEl.textContent = JSON.stringify(r, null, 2);
+                    return;
+                }
+
+                const output = String(r.output ?? "");
+
+                if (info.dev.type === "wled") {
+                    info.statusEl.textContent = formatWledStatus(output);
+                } else if (info.dev.type === "espmega_sensors") {
+                    info.statusEl.textContent = formatEspMegaStatus(output);
+                } else {
+                    info.statusEl.textContent = `status: ${output}`;
+                }
+
+                if (info.relayUI) {
+                    const parsed = parseRelayState(output, info.dev.relay_on_value || "1");
+                    if (parsed === null) {
+                        info.relayUI.setUnknown(output);
+                    } else {
+                        info.relayUI.setState(parsed, output);
+                    }
+                }
+            } catch (e) {
+                info.statusEl.textContent = `status error: ${e.message}`;
+                if (info.relayUI) info.relayUI.setUnknown(e.message);
+            }
+        }
+
+        async function refreshAllStatuses() {
+            const tasks = [];
+            for (const dev of devicesCache) {
+                tasks.push(refreshDeviceStatus(dev.id, true));
+            }
+            await Promise.all(tasks);
+        }
+
+        async function init() {
+            const root = document.getElementById("devices");
+            root.innerHTML = "Загрузка...";
+            try {
+                const resp = await fetch("/api/devices");
+                const devices = await resp.json();
+                devicesCache = devices;
+
+                root.innerHTML = "";
+                cards.clear();
+
+                devices.forEach(dev => {
+                    const info = createDeviceCard(dev);
+                    cards.set(dev.id, info);
+                    root.appendChild(info.card);
+                });
+
+                await refreshAllStatuses();
+                setInterval(refreshAllStatuses, 5000);
+            } catch (e) {
+                root.innerHTML = "Ошибка загрузки: " + e.message;
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>
