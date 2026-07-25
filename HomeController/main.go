@@ -11,8 +11,10 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -21,8 +23,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type UISetup struct {
+	HomeName            string `yaml:"home_name" json:"home_name"`
+	Icon                string `yaml:"icon" json:"icon"`
+	OpenWeatherForecast bool   `yaml:"openweather_forecast" json:"openweather_forecast"`
+	OpenWeatherAPIKey   string `yaml:"openweather_api_key" json:"-"`
+	OpenWeatherCity     string `yaml:"openweathermap_city" json:"openweathermap_city"`
+}
+
 type Config struct {
 	ServerPort        int           `yaml:"server_port"`
+	HTMLTemplate      string        `yaml:"html_template"`
+	UISetup           UISetup       `yaml:"ui_setup"`
 	DevicesLinuxShell []LinuxDevice `yaml:"devices_linux_shell"`
 	DevicesHTTP       []HTTPDevice  `yaml:"devices_http"`
 }
@@ -95,6 +107,11 @@ func main() {
 
 	deviceMap, publicList := buildDeviceRegistry(cfg)
 
+	templatePath := strings.TrimSpace(cfg.HTMLTemplate)
+	if templatePath == "" {
+		templatePath = filepath.Join(*webDir, "index.html")
+	}
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/api/devices", func(w http.ResponseWriter, r *http.Request) {
@@ -107,6 +124,55 @@ func main() {
 		writeJSON(w, http.StatusOK, publicList)
 	})
 
+	mux.HandleFunc("/api/ui-config", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, ActionResponse{
+				OK: false, Error: "method not allowed",
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, cfg.UISetup)
+	})
+
+	mux.HandleFunc("/api/weather", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeJSON(w, http.StatusMethodNotAllowed, ActionResponse{
+				OK: false, Error: "method not allowed",
+			})
+			return
+		}
+
+		if !cfg.UISetup.OpenWeatherForecast {
+			writeJSON(w, http.StatusBadRequest, ActionResponse{
+				OK: false, Error: "openweather_forecast disabled",
+			})
+			return
+		}
+		if strings.TrimSpace(cfg.UISetup.OpenWeatherAPIKey) == "" ||
+			strings.TrimSpace(cfg.UISetup.OpenWeatherCity) == "" {
+			writeJSON(w, http.StatusBadRequest, ActionResponse{
+				OK: false, Error: "openweather_api_key/openweathermap_city not configured",
+			})
+			return
+		}
+
+		q := url.Values{}
+		q.Set("q", cfg.UISetup.OpenWeatherCity)
+		q.Set("appid", cfg.UISetup.OpenWeatherAPIKey)
+		q.Set("units", "metric")
+		q.Set("lang", "ru")
+
+		apiURL := "https://api.openweathermap.org/data/2.5/weather?" + q.Encode()
+		out, err := doHTTPGet(apiURL)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, ActionResponse{
+				OK: false, Error: err.Error(), Output: out,
+			})
+			return
+		}
+		writeJSON(w, http.StatusOK, ActionResponse{OK: true, Output: out})
+	})
+
 	mux.HandleFunc("/api/device/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeJSON(w, http.StatusMethodNotAllowed, ActionResponse{
@@ -116,7 +182,8 @@ func main() {
 		}
 
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-		if len(parts) != 4 || parts[0] != "api" || parts[1] != "device" || parts[3] != "action" {
+		if len(parts) != 4 || parts[0] != "api" || parts[1] != "device" ||
+			parts[3] != "action" {
 			writeJSON(w, http.StatusNotFound, ActionResponse{
 				OK: false, Error: "invalid path",
 			})
@@ -163,11 +230,21 @@ func main() {
 		})
 	})
 
-	mux.Handle("/", http.FileServer(http.Dir(*webDir)))
+	mux.Handle("/web/", http.StripPrefix("/web/",
+		http.FileServer(http.Dir(*webDir))))
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, templatePath)
+	})
 
 	addr := fmt.Sprintf(":%d", cfg.ServerPort)
 	log.Printf("Started: http://localhost%s", addr)
 	log.Printf("Config: %s", *configPath)
+	log.Printf("Template: %s", templatePath)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
 
@@ -185,7 +262,8 @@ func loadConfig(path string) (Config, error) {
 
 func buildDeviceRegistry(cfg Config) (map[string]DeviceEntry, []DevicePublic) {
 	m := make(map[string]DeviceEntry)
-	out := make([]DevicePublic, 0, len(cfg.DevicesLinuxShell)+len(cfg.DevicesHTTP))
+	out := make([]DevicePublic, 0,
+		len(cfg.DevicesLinuxShell)+len(cfg.DevicesHTTP))
 
 	for i := range cfg.DevicesLinuxShell {
 		d := cfg.DevicesLinuxShell[i]
@@ -255,7 +333,6 @@ func detectRelayOnValueLinux(d LinuxDevice) string {
 	if strings.TrimSpace(d.RelayOnValue) != "" {
 		return strings.TrimSpace(d.RelayOnValue)
 	}
-
 	onLast := extractLastZeroOne(d.OnCommand)
 	offLast := extractLastZeroOne(d.OffCommand)
 	if onLast != "" && offLast != "" && onLast != offLast {
@@ -319,6 +396,11 @@ func httpActions(d HTTPDevice) []string {
 		}
 		return a
 	case "espmega_sensors":
+		if d.URL != "" {
+			return []string{"status"}
+		}
+		return []string{}
+	case "onemesh":
 		if d.URL != "" {
 			return []string{"status"}
 		}
@@ -504,7 +586,7 @@ func executeHTTPAction(
 			return "", fmt.Errorf("unsupported action: %s", action)
 		}
 
-	case "espmega_sensors":
+	case "espmega_sensors", "onemesh":
 		if action != "status" {
 			return "", errors.New("only action status is supported")
 		}
@@ -561,23 +643,14 @@ func executeWLEDAction(base, action string, params map[string]string) (string, e
 	switch action {
 	case "status":
 		return doHTTPGet(joinURL(base, "/json/state"))
-
 	case "effects":
 		return doHTTPGet(joinURL(base, "/json/eff"))
-
 	case "palettes":
 		return doHTTPGet(joinURL(base, "/json/pal"))
-
 	case "on":
-		return doWLEDStatePost(base, map[string]any{
-			"on": true,
-		})
-
+		return doWLEDStatePost(base, map[string]any{"on": true})
 	case "off":
-		return doWLEDStatePost(base, map[string]any{
-			"on": false,
-		})
-
+		return doWLEDStatePost(base, map[string]any{"on": false})
 	case "bright":
 		v := strings.TrimSpace(params["value"])
 		if v == "" {
@@ -587,11 +660,7 @@ func executeWLEDAction(base, action string, params map[string]string) (string, e
 		if err != nil || bri < 0 || bri > 255 {
 			return "", errors.New("value must be 0..255")
 		}
-		return doWLEDStatePost(base, map[string]any{
-			"on":  true,
-			"bri": bri,
-		})
-
+		return doWLEDStatePost(base, map[string]any{"on": true, "bri": bri})
 	case "color":
 		r, g, b, err := parseRGB(params)
 		if err != nil {
@@ -603,14 +672,12 @@ func executeWLEDAction(base, action string, params map[string]string) (string, e
 				{"col": [][]int{{r, g, b}}},
 			},
 		})
-
 	case "set_effect":
 		fx, err := requiredInt(params, "fx")
 		if err != nil {
 			return "", err
 		}
 		seg := map[string]any{"fx": fx}
-
 		if palStr := strings.TrimSpace(params["pal"]); palStr != "" {
 			pal, e := strconv.Atoi(palStr)
 			if e != nil || pal < 0 {
@@ -632,21 +699,16 @@ func executeWLEDAction(base, action string, params map[string]string) (string, e
 			}
 			seg["ix"] = ix
 		}
-
 		return doWLEDStatePost(base, map[string]any{
 			"on":  true,
 			"seg": []map[string]any{seg},
 		})
-
 	case "preset":
 		id, err := requiredInt(params, "id")
 		if err != nil {
 			return "", err
 		}
-		return doWLEDStatePost(base, map[string]any{
-			"ps": id,
-		})
-
+		return doWLEDStatePost(base, map[string]any{"ps": id})
 	case "toggle_random":
 		var st struct {
 			On bool `json:"on"`
@@ -655,20 +717,15 @@ func executeWLEDAction(base, action string, params map[string]string) (string, e
 			return "", fmt.Errorf("wled status read failed: %w", err)
 		}
 		if st.On {
-			return doWLEDStatePost(base, map[string]any{
-				"on": false,
-			})
+			return doWLEDStatePost(base, map[string]any{"on": false})
 		}
 		rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
 		randomFX := rnd.Intn(99) + 2
 		return doWLEDStatePost(base, map[string]any{
 			"on":  true,
 			"bri": 245,
-			"seg": []map[string]any{
-				{"fx": randomFX},
-			},
+			"seg": []map[string]any{{"fx": randomFX}},
 		})
-
 	default:
 		return "", fmt.Errorf("unsupported action: %s", action)
 	}
@@ -708,7 +765,7 @@ func doWLEDStatePost(base string, payload map[string]any) (string, error) {
 
 func doHTTPGet(rawURL string) (string, error) {
 	u := normalizeURL(rawURL)
-	client := &http.Client{Timeout: 8 * time.Second}
+	client := &http.Client{Timeout: 10 * time.Second}
 
 	resp, err := client.Get(u)
 	if err != nil {
@@ -716,7 +773,7 @@ func doHTTPGet(rawURL string) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
 	txt := strings.TrimSpace(string(body))
 	if txt == "" {
 		txt = resp.Status
@@ -729,7 +786,7 @@ func doHTTPGet(rawURL string) (string, error) {
 
 func doHTTPPostJSON(rawURL string, payload any) (string, error) {
 	u := normalizeURL(rawURL)
-	client := &http.Client{Timeout: 8 * time.Second}
+	client := &http.Client{Timeout: 10 * time.Second}
 
 	b, err := json.Marshal(payload)
 	if err != nil {
@@ -748,7 +805,7 @@ func doHTTPPostJSON(rawURL string, payload any) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 128*1024))
 	txt := strings.TrimSpace(string(body))
 	if txt == "" {
 		txt = resp.Status
@@ -761,7 +818,7 @@ func doHTTPPostJSON(rawURL string, payload any) (string, error) {
 
 func getJSON(rawURL string, dst any) error {
 	u := normalizeURL(rawURL)
-	client := &http.Client{Timeout: 8 * time.Second}
+	client := &http.Client{Timeout: 10 * time.Second}
 
 	resp, err := client.Get(u)
 	if err != nil {

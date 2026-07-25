@@ -57,6 +57,7 @@
             min-height: 24px;
             white-space: pre-wrap;
             margin-bottom: 8px;
+            line-height: 1.35;
         }
         .log {
             background: #111;
@@ -116,9 +117,30 @@
             color: #333;
             min-width: 64px;
         }
+        .preset-grid {
+            display: grid;
+            grid-template-columns: repeat(8, minmax(28px, 1fr));
+            gap: 6px;
+            width: 100%;
+        }
+        .preset-grid button {
+            padding: 4px 0;
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
+    <div id="topbar" class="card" style="margin-bottom:12px;">
+        <div class="row" style="justify-content:space-between;">
+            <div class="row">
+                <img id="homeIcon" alt="" style="width:28px;height:28px;display:none;" />
+                <div id="homeTitle" class="name">Мой дом</div>
+            </div>
+            <div id="timePhrase" class="meta"></div>
+        </div>
+        <div id="weatherBox" class="row" style="display:none;"></div>
+    </div>
+
     <h2>Устройства</h2>
     <div class="small">Автообновление статусов: каждые 5 секунд</div>
     <div id="devices" class="grid"></div>
@@ -126,6 +148,7 @@
     <script>
         const cards = new Map();
         let devicesCache = [];
+        let uiConfig = null;
 
         function supports(dev, action) {
             return Array.isArray(dev.actions) && dev.actions.includes(action);
@@ -201,6 +224,7 @@
                 return `status: ${output}`;
             }
         }
+
         function formatSensorValue(raw, nrDecimals) {
             if (typeof raw === "number") {
                 if (!Number.isFinite(raw)) return "—";
@@ -208,13 +232,11 @@
                 if (d >= 0 && d <= 6) return raw.toFixed(d);
                 return String(raw);
             }
-
             if (typeof raw === "string") {
                 const t = raw.trim().toLowerCase();
                 if (t === "nan" || t === "inf" || t === "-inf") return "—";
                 return raw;
             }
-
             if (raw === null || raw === undefined) return "—";
             return String(raw);
         }
@@ -223,45 +245,78 @@
             try {
                 const data = JSON.parse(output);
                 const sensors = Array.isArray(data?.Sensors) ? data.Sensors : [];
-
-                if (sensors.length === 0) {
-                    return "Нет блока Sensors";
-                }
+                if (sensors.length === 0) return "Нет блока Sensors";
 
                 const lines = [];
-
                 sensors.forEach((sensor, idx) => {
-                    const taskName =
-                        sensor?.TaskName && String(sensor.TaskName).trim() !== ""
-                            ? String(sensor.TaskName)
-                            : `Task ${idx + 1}`;
+                    const taskName = sensor?.TaskName && String(sensor.TaskName).trim() !== ""
+                        ? String(sensor.TaskName)
+                        : `Task ${idx + 1}`;
 
                     const taskValues = Array.isArray(sensor?.TaskValues)
                         ? sensor.TaskValues
                         : [];
 
                     if (taskValues.length === 0) return;
-
                     lines.push(`${taskName}:`);
 
                     taskValues.forEach((tv) => {
-                        const name =
-                            tv?.Name && String(tv.Name).trim() !== ""
-                                ? String(tv.Name)
-                                : `Value ${tv?.ValueNumber ?? ""}`.trim();
+                        const name = tv?.Name && String(tv.Name).trim() !== ""
+                            ? String(tv.Name)
+                            : `Value ${tv?.ValueNumber ?? ""}`.trim();
 
                         const value = formatSensorValue(tv?.Value, tv?.NrDecimals);
                         lines.push(`- ${name}: ${value}`);
                     });
-
                     lines.push("");
                 });
 
-                if (lines.length === 0) {
-                    return "В Sensors нет TaskValues";
+                if (lines.length === 0) return "В Sensors нет TaskValues";
+                return lines.join("\n").trim();
+            } catch {
+                return `status: ${output}`;
+            }
+        }
+
+        function formatOneMeshStatus(output) {
+            try {
+                const data = JSON.parse(output);
+                const n = data?.node || {};
+
+                const voltage = n.voltage != null
+                    ? Number(n.voltage).toFixed(3)
+                    : "—";
+
+                const tRaw = Number(n.temperature);
+                const temp = Number.isFinite(tRaw) ? tRaw.toFixed(2) : "—";
+
+                const rh = n.relative_humidity == null
+                    ? "—"
+                    : String(n.relative_humidity);
+
+                const pKpa = Number(n.barometric_pressure);
+                const pMm = Number.isFinite(pKpa)
+                    ? (pKpa * 7.50061683).toFixed(2)
+                    : "—";
+
+                const rad = n.radiation == null ? "—" : String(n.radiation);
+
+                let updated = "—";
+                if (n.updated_at) {
+                    const d = new Date(n.updated_at);
+                    if (!Number.isNaN(d.getTime())) {
+                        updated = d.toLocaleString("ru-RU");
+                    }
                 }
 
-                return lines.join("\n").trim();
+                return [
+                    `🔋 Voltage: ${voltage} V`,
+                    `🌡️ Temperature: ${temp} °C`,
+                    `💧 Humidity: ${rh} %`,
+                    `🧭 Pressure: ${pMm} мм рт.ст.`,
+                    `☢️ Radiation: ${rad}`,
+                    `🕒 Updated: ${updated}`
+                ].join("\n");
             } catch {
                 return `status: ${output}`;
             }
@@ -341,8 +396,6 @@
             card.appendChild(wrap);
 
             return {
-                input,
-                text: txt,
                 setState(isOn, rawText = "") {
                     suppress = true;
                     input.checked = !!isOn;
@@ -359,7 +412,6 @@
 
         function addToggleButton(card, dev, logEl) {
             if (!supports(dev, "toggle")) return;
-
             const row = document.createElement("div");
             row.className = "row";
 
@@ -387,11 +439,11 @@
             val.textContent = range.value;
             range.oninput = () => val.textContent = range.value;
 
-            const btn = document.createElement("button");
-            btn.textContent = "Set bright";
-            btn.onclick = () => callAndLog(dev, logEl, "bright", { value: range.value });
+            range.addEventListener("change", () => {
+                callAndLog(dev, logEl, "bright", { value: range.value });
+            });
 
-            row.append("Bright:", range, val, btn);
+            row.append("Bright:", range, val);
             card.appendChild(row);
         }
 
@@ -405,18 +457,16 @@
             color.type = "color";
             color.value = "#ff0000";
 
-            const btn = document.createElement("button");
-            btn.textContent = "Set color";
-            btn.onclick = () => {
+            color.addEventListener("change", () => {
                 const rgb = hexToRgb(color.value);
                 callAndLog(dev, logEl, "color", {
                     r: String(rgb.r),
                     g: String(rgb.g),
                     b: String(rgb.b)
                 });
-            };
+            });
 
-            row.append("Color:", color, btn);
+            row.append("Color:", color);
             card.appendChild(row);
         }
 
@@ -430,18 +480,16 @@
             color.type = "color";
             color.value = "#ff0000";
 
-            const btn = document.createElement("button");
-            btn.textContent = "Set lamp color";
-            btn.onclick = () => {
+            color.addEventListener("change", () => {
                 const rgb = hexToRgb(color.value);
                 const hs = rgbToHs(rgb.r, rgb.g, rgb.b);
                 callAndLog(dev, logEl, "color", {
                     h: String(hs.h),
                     s: String(hs.s)
                 });
-            };
+            });
 
-            row.append("Color:", color, btn);
+            row.append("Color:", color);
             card.appendChild(row);
         }
 
@@ -451,24 +499,27 @@
             const row = document.createElement("div");
             row.className = "row";
 
-            const temp = document.createElement("input");
-            temp.type = "number";
-            temp.value = "4000";
-            temp.min = "2000";
-            temp.max = "6500";
-            temp.step = "100";
+            const range = document.createElement("input");
+            range.type = "range";
+            range.min = "2000";
+            range.max = "6500";
+            range.step = "50";
+            range.value = "4000";
 
-            const btn = document.createElement("button");
-            btn.textContent = "Set temp";
-            btn.onclick = () => callAndLog(dev, logEl, "colortemp", { value: temp.value });
+            const val = document.createElement("span");
+            val.textContent = range.value;
+            range.oninput = () => val.textContent = range.value;
 
-            row.append("K:", temp, btn);
+            range.addEventListener("change", () => {
+                callAndLog(dev, logEl, "colortemp", { value: range.value });
+            });
+
+            row.append("Temp K:", range, val);
             card.appendChild(row);
         }
 
         function addTrigger(card, dev, logEl) {
             if (!supports(dev, "trigger")) return;
-
             const row = document.createElement("div");
             row.className = "row";
 
@@ -492,48 +543,11 @@
             row1.className = "row";
 
             const fxSel = document.createElement("select");
-            fxSel.innerHTML = `<option value="">effect...</option>`;
-
             const palSel = document.createElement("select");
+            fxSel.innerHTML = `<option value="">effect...</option>`;
             palSel.innerHTML = `<option value="">palette...</option>`;
 
-            const loadBtn = document.createElement("button");
-            loadBtn.textContent = "Load effects";
-            loadBtn.onclick = async () => {
-                try {
-                    if (supports(dev, "effects")) {
-                        const effResp = await apiAction(dev.id, "effects");
-                        if (effResp.ok) {
-                            const arr = JSON.parse(effResp.output);
-                            fxSel.innerHTML = "";
-                            arr.forEach((name, idx) => {
-                                const o = document.createElement("option");
-                                o.value = String(idx);
-                                o.textContent = `${idx}: ${name}`;
-                                fxSel.appendChild(o);
-                            });
-                        }
-                    }
-
-                    if (supports(dev, "palettes")) {
-                        const palResp = await apiAction(dev.id, "palettes");
-                        if (palResp.ok) {
-                            const arr = JSON.parse(palResp.output);
-                            palSel.innerHTML = `<option value="">(no change)</option>`;
-                            arr.forEach((name, idx) => {
-                                const o = document.createElement("option");
-                                o.value = String(idx);
-                                o.textContent = `${idx}: ${name}`;
-                                palSel.appendChild(o);
-                            });
-                        }
-                    }
-                } catch (e) {
-                    logEl.textContent = "Ошибка загрузки эффектов: " + e.message;
-                }
-            };
-
-            row1.append(loadBtn, fxSel, palSel);
+            row1.append("FX:", fxSel, "PAL:", palSel);
             card.appendChild(row1);
 
             const row2 = document.createElement("div");
@@ -557,51 +571,80 @@
             ixVal.textContent = ix.value;
             ix.oninput = () => ixVal.textContent = ix.value;
 
-            const applyBtn = document.createElement("button");
-            applyBtn.textContent = "Apply effect";
-            applyBtn.onclick = () => {
-                if (!fxSel.value) {
-                    logEl.textContent = "Сначала выбери эффект";
-                    return;
-                }
-                const params = {
-                    fx: fxSel.value,
-                    sx: sx.value,
-                    ix: ix.value
-                };
-                if (palSel.value !== "") params.pal = palSel.value;
-                callAndLog(dev, logEl, "set_effect", params);
-            };
-
-            row2.append("Speed:", sx, sxVal, "Intensity:", ix, ixVal, applyBtn);
+            row2.append("Speed:", sx, sxVal, "Intensity:", ix, ixVal);
             card.appendChild(row2);
+
+            async function applyWledEffectAuto() {
+                if (!fxSel.value) return;
+                const params = { fx: fxSel.value, sx: sx.value, ix: ix.value };
+                if (palSel.value !== "") params.pal = palSel.value;
+                await callAndLog(dev, logEl, "set_effect", params);
+            }
+
+            fxSel.addEventListener("change", applyWledEffectAuto);
+            palSel.addEventListener("change", applyWledEffectAuto);
+            sx.addEventListener("change", applyWledEffectAuto);
+            ix.addEventListener("change", applyWledEffectAuto);
 
             const row3 = document.createElement("div");
             row3.className = "row";
+            row3.append("Presets:");
+            card.appendChild(row3);
 
-            if (supports(dev, "preset")) {
-                const preset = document.createElement("input");
-                preset.type = "number";
-                preset.min = "1";
-                preset.value = "1";
-
-                const presetBtn = document.createElement("button");
-                presetBtn.textContent = "Apply preset";
-                presetBtn.onclick = () => callAndLog(dev, logEl, "preset", { id: preset.value });
-
-                row3.append("Preset:", preset, presetBtn);
+            const presetGrid = document.createElement("div");
+            presetGrid.className = "preset-grid";
+            for (let i = 1; i <= 16; i++) {
+                const b = document.createElement("button");
+                b.textContent = String(i);
+                b.onclick = () => callAndLog(dev, logEl, "preset", { id: String(i) });
+                presetGrid.appendChild(b);
             }
+            card.appendChild(presetGrid);
 
+            const row4 = document.createElement("div");
+            row4.className = "row";
             if (supports(dev, "toggle_random")) {
                 const rndBtn = document.createElement("button");
                 rndBtn.textContent = "Toggle random";
                 rndBtn.onclick = () => callAndLog(dev, logEl, "toggle_random", {}, true);
-                row3.append(rndBtn);
+                row4.appendChild(rndBtn);
+            }
+            if (row4.children.length > 0) {
+                card.appendChild(row4);
             }
 
-            if (row3.children.length > 0) {
-                card.appendChild(row3);
-            }
+            (async () => {
+                try {
+                    if (supports(dev, "effects")) {
+                        const eff = await apiAction(dev.id, "effects");
+                        if (eff.ok) {
+                            const arr = JSON.parse(eff.output);
+                            fxSel.innerHTML = "";
+                            arr.forEach((name, idx) => {
+                                const o = document.createElement("option");
+                                o.value = String(idx);
+                                o.textContent = `${idx}: ${name}`;
+                                fxSel.appendChild(o);
+                            });
+                        }
+                    }
+                    if (supports(dev, "palettes")) {
+                        const pal = await apiAction(dev.id, "palettes");
+                        if (pal.ok) {
+                            const arr = JSON.parse(pal.output);
+                            palSel.innerHTML = `<option value="">(no change)</option>`;
+                            arr.forEach((name, idx) => {
+                                const o = document.createElement("option");
+                                o.value = String(idx);
+                                o.textContent = `${idx}: ${name}`;
+                                palSel.appendChild(o);
+                            });
+                        }
+                    }
+                } catch (e) {
+                    logEl.textContent = "Ошибка загрузки fx/palette: " + e.message;
+                }
+            })();
         }
 
         function createDeviceCard(dev) {
@@ -665,6 +708,9 @@
                 case "espmega_sensors":
                     addBasicButtons(card, dev, logEl);
                     break;
+                case "onemesh":
+                    addBasicButtons(card, dev, logEl);
+                    break;
                 case "dump_url":
                     addTrigger(card, dev, logEl);
                     break;
@@ -706,17 +752,16 @@
                     info.statusEl.textContent = formatWledStatus(output);
                 } else if (info.dev.type === "espmega_sensors") {
                     info.statusEl.textContent = formatEspMegaStatus(output);
+                } else if (info.dev.type === "onemesh") {
+                    info.statusEl.textContent = formatOneMeshStatus(output);
                 } else {
                     info.statusEl.textContent = `status: ${output}`;
                 }
 
                 if (info.relayUI) {
                     const parsed = parseRelayState(output, info.dev.relay_on_value || "1");
-                    if (parsed === null) {
-                        info.relayUI.setUnknown(output);
-                    } else {
-                        info.relayUI.setState(parsed, output);
-                    }
+                    if (parsed === null) info.relayUI.setUnknown(output);
+                    else info.relayUI.setState(parsed, output);
                 }
             } catch (e) {
                 info.statusEl.textContent = `status error: ${e.message}`;
@@ -732,9 +777,112 @@
             await Promise.all(tasks);
         }
 
+        function pad2(n) {
+            return String(n).padStart(2, "0");
+        }
+
+        function monthRu(m) {
+            const arr = [
+                "января","февраля","марта","апреля","мая","июня",
+                "июля","августа","сентября","октября","ноября","декабря"
+            ];
+            return arr[m] || "";
+        }
+
+        function phraseByHour(h) {
+            if (h >= 0 && h < 5) return "Ночь на земле";
+            if (h < 8) return "Встречай рассвет";
+            if (h < 12) return "Доброе утро";
+            if (h < 17) return "Светлый день";
+            if (h < 21) return "Тёплый вечер";
+            return "Город засыпает";
+        }
+
+        function updateTimePhrase() {
+            const now = new Date();
+            const text = `${phraseByHour(now.getHours())}, сейчас ${pad2(now.getHours())}:${pad2(now.getMinutes())} ${now.getDate()} ${monthRu(now.getMonth())} ${now.getFullYear()} года`;
+            const el = document.getElementById("timePhrase");
+            if (el) el.textContent = text;
+        }
+
+        function weatherIcon(main) {
+            const t = String(main || "").toLowerCase();
+            if (t.includes("clear")) return "☀️";
+            if (t.includes("cloud")) return "☁️";
+            if (t.includes("rain") || t.includes("drizzle")) return "🌧️";
+            if (t.includes("thunder")) return "⛈️";
+            if (t.includes("snow")) return "❄️";
+            if (t.includes("mist") || t.includes("fog")) return "🌫️";
+            return "🌤️";
+        }
+
+        function fmtHHMMFromUnix(sec, tzShiftSec) {
+            const d = new Date((sec + tzShiftSec) * 1000);
+            return `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}`;
+        }
+
+        async function loadUIConfig() {
+            try {
+                const resp = await fetch("/api/ui-config");
+                uiConfig = await resp.json();
+
+                const title = document.getElementById("homeTitle");
+                if (title && uiConfig?.home_name) title.textContent = uiConfig.home_name;
+
+                const icon = document.getElementById("homeIcon");
+                if (icon && uiConfig?.icon) {
+                    icon.src = uiConfig.icon;
+                    icon.style.display = "inline-block";
+                }
+            } catch {}
+        }
+
+        async function loadWeather() {
+            const box = document.getElementById("weatherBox");
+            if (!box) return;
+
+            if (!uiConfig?.openweather_forecast) {
+                box.style.display = "none";
+                return;
+            }
+
+            try {
+                const resp = await fetch("/api/weather");
+                const data = await resp.json();
+                if (!data.ok) throw new Error(data.error || "weather error");
+
+                const w = JSON.parse(data.output);
+                const icon = weatherIcon(w?.weather?.[0]?.main);
+                const descr = w?.weather?.[0]?.description || "-";
+                const temp = Math.round(Number(w?.main?.temp ?? 0));
+                const hum = Number(w?.main?.humidity ?? 0);
+                const rise = fmtHHMMFromUnix(Number(w?.sys?.sunrise ?? 0), Number(w?.timezone ?? 0));
+                const set = fmtHHMMFromUnix(Number(w?.sys?.sunset ?? 0), Number(w?.timezone ?? 0));
+
+                box.innerHTML = `
+                    <span>${icon} ${descr}</span>
+                    <span>🌡️ ${temp}°C</span>
+                    <span>💧 ${hum}%</span>
+                    <span>🌅 ${rise}</span>
+                    <span>🌇 ${set}</span>
+                `;
+                box.style.display = "flex";
+            } catch {
+                box.innerHTML = "⚠️ Погода недоступна";
+                box.style.display = "flex";
+            }
+        }
+
         async function init() {
             const root = document.getElementById("devices");
             root.innerHTML = "Загрузка...";
+
+            await loadUIConfig();
+            updateTimePhrase();
+            setInterval(updateTimePhrase, 30000);
+            await loadWeather();
+            setInterval(loadWeather, 10 * 60 * 1000);
+
             try {
                 const resp = await fetch("/api/devices");
                 const devices = await resp.json();
