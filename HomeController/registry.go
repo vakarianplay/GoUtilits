@@ -96,6 +96,13 @@ func extractLastZeroOne(cmd string) string {
 }
 
 func shellActions(d LinuxDevice) []string {
+	if d.Type == "tty_sensor" {
+		if strings.TrimSpace(d.Port) != "" && strings.TrimSpace(d.Command) != "" {
+			return []string{"status"}
+		}
+		return []string{}
+	}
+
 	var a []string
 	if d.StatusCommand != "" {
 		a = append(a, "status")

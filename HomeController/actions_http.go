@@ -89,18 +89,27 @@ func executeHTTPAction(
 	}
 }
 
-func executeWLEDAction(base, action string, params map[string]string) (string, error) {
+func executeWLEDAction(
+	base string,
+	action string,
+	params map[string]string,
+) (string, error) {
 	switch action {
 	case "status":
 		return doHTTPGet(joinURL(base, "/json/state"))
+
 	case "effects":
 		return doHTTPGet(joinURL(base, "/json/eff"))
+
 	case "palettes":
 		return doHTTPGet(joinURL(base, "/json/pal"))
+
 	case "on":
 		return doWLEDStatePost(base, map[string]any{"on": true})
+
 	case "off":
 		return doWLEDStatePost(base, map[string]any{"on": false})
+
 	case "bright":
 		v := strings.TrimSpace(params["value"])
 		if v == "" {
@@ -110,7 +119,11 @@ func executeWLEDAction(base, action string, params map[string]string) (string, e
 		if err != nil || bri < 0 || bri > 255 {
 			return "", errors.New("value must be 0..255")
 		}
-		return doWLEDStatePost(base, map[string]any{"on": true, "bri": bri})
+		return doWLEDStatePost(base, map[string]any{
+			"on":  true,
+			"bri": bri,
+		})
+
 	case "color":
 		r, g, b, err := parseRGB(params)
 		if err != nil {
@@ -122,6 +135,7 @@ func executeWLEDAction(base, action string, params map[string]string) (string, e
 				{"col": [][]int{{r, g, b}}},
 			},
 		})
+
 	case "set_effect":
 		fx, err := requiredInt(params, "fx")
 		if err != nil {
@@ -155,12 +169,14 @@ func executeWLEDAction(base, action string, params map[string]string) (string, e
 			"on":  true,
 			"seg": []map[string]any{seg},
 		})
+
 	case "preset":
 		id, err := requiredInt(params, "id")
 		if err != nil {
 			return "", err
 		}
 		return doWLEDStatePost(base, map[string]any{"ps": id})
+
 	case "toggle_random":
 		var st struct {
 			On bool `json:"on"`
@@ -171,13 +187,18 @@ func executeWLEDAction(base, action string, params map[string]string) (string, e
 		if st.On {
 			return doWLEDStatePost(base, map[string]any{"on": false})
 		}
+
 		rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
-		randomFX := rnd.Intn(99) + 2
+		randomFX := rnd.Intn(99) + 2 // 2..100
+
 		return doWLEDStatePost(base, map[string]any{
 			"on":  true,
 			"bri": 245,
-			"seg": []map[string]any{{"fx": randomFX}},
+			"seg": []map[string]any{
+				{"fx": randomFX},
+			},
 		})
+
 	default:
 		return "", fmt.Errorf("unsupported action: %s", action)
 	}
@@ -192,14 +213,17 @@ func parseRGB(params map[string]string) (int, int, int, error) {
 	if err != nil || r < 0 || r > 255 {
 		return 0, 0, 0, errors.New("r must be 0..255")
 	}
+
 	g, err := requiredInt(params, "g")
 	if err != nil || g < 0 || g > 255 {
 		return 0, 0, 0, errors.New("g must be 0..255")
 	}
+
 	b, err := requiredInt(params, "b")
 	if err != nil || b < 0 || b > 255 {
 		return 0, 0, 0, errors.New("b must be 0..255")
 	}
+
 	return r, g, b, nil
 }
 
