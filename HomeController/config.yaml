@@ -38,6 +38,18 @@ devices_linux_shell:
       colortemp_command: python3 /home/orange/gpio/tapo_switch.py --dev=L530 --temp=%s #kelvin
       color_command: python3 /home/orange/gpio/tapo_switch.py --dev=L530 --color %s,%s #hue, saturation
 
+    - name: Напряжение в сети
+      type: tty_sensor
+      port: /dev/ttyS3
+      command: AC?
+      measurement: V
+
+    - name: Напряжение блока питания
+      type: tty_sensor
+      port: /dev/ttyS3
+      command: DC?
+      measurement: V
+
 devices_http:
     - name: wledStrip
       type: wled
