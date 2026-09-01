@@ -27,6 +27,12 @@ type LinuxDevice struct {
 	ColorTempCommand string `yaml:"colortemp_command"`
 	ColorCommand     string `yaml:"color_command"`
 	RelayOnValue     string `yaml:"relay_on_value"`
+
+	// tty_sensor
+	Port        string `yaml:"port"`
+	Command     string `yaml:"command"`
+	Measurement string `yaml:"measurement"`
+	Baud        int    `yaml:"baud"`
 }
 
 type HTTPDevice struct {
