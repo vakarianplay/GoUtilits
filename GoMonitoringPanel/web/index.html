@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GoPanel</title>
+<style>
+:root{
+  --bg:#edf2f8;--card:#fff;--txt:#1f2937;--muted:#6b7280;--line:#d6deea;
+  --blue:#2477ff;--gray:#49566a;--ok:#1c9d5c;--bad:#cf4e4e
+}
+:root[data-theme="dark"]{
+  --bg:#0f1723;--card:#1a2538;--txt:#e5edf8;--muted:#9aa8bf;--line:#2a3b52;
+  --blue:#5a97ff;--gray:#9fb0c8;--ok:#41c985;--bad:#ff6b6b
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto}
+.wrap{max-width:1360px;margin:12px auto;padding:0 12px}
+
+.header{background:var(--card);border-radius:12px;padding:12px;box-shadow:0 1px 0 rgba(0,0,0,.08);margin-bottom:10px}
+.hrow{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+.hleft{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.title{font-size:18px;font-weight:700}
+.small{font-size:12px;color:var(--muted)}
+.btn{border:1px solid var(--line);background:transparent;color:var(--txt);padding:6px 10px;border-radius:8px;cursor:pointer}
+
+.theme-toggle{display:flex;align-items:center;gap:8px}
+.switch{position:relative;display:inline-block;width:48px;height:26px}
+.switch input{opacity:0;width:0;height:0}
+.switch-slider{
+  position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;
+  background:#8ea0bd;border-radius:26px;transition:.2s
+}
+.switch-slider:before{
+  position:absolute;content:"";height:20px;width:20px;left:3px;top:3px;
+  background:white;border-radius:50%;transition:.2s
+}
+.switch input:checked + .switch-slider{background:#4d7fff}
+.switch input:checked + .switch-slider:before{transform:translateX(22px)}
+
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:12px}
+.card{background:var(--card);border-radius:12px;padding:12px;box-shadow:0 1px 0 rgba(0,0,0,.08)}
+.c3{grid-column:span 3}.c6{grid-column:span 6}.c12{grid-column:span 12}
+.tt{font-size:12px;letter-spacing:.08em;color:var(--muted);text-transform:uppercase}
+.v{font-size:36px;font-weight:700;line-height:1;margin-top:8px}
+.sub{margin-top:6px;color:var(--muted)}
+.row{display:flex;justify-content:space-between;gap:10px;align-items:center}
+canvas{display:block;width:100%;height:72px;margin-top:8px;border-top:1px dashed var(--line);padding-top:8px}
+#netBig{height:150px}
+.svc-wrap{max-height:280px;overflow:auto;margin-top:8px;border-top:1px dashed var(--line);padding-top:8px}
+.svc{display:grid;grid-template-columns:1fr auto auto;gap:8px;padding:6px 0;border-bottom:1px solid rgba(120,130,150,.18)}
+.badge{font-size:12px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+.temps{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.pill{font-size:12px;padding:4px 8px;border-radius:999px;border:1px solid var(--line)}
+
+@media(max-width:1024px){
+  .c3,.c6{grid-column:span 6}
+}
+@media(max-width:760px){
+  .hrow{flex-direction:column;align-items:flex-start}
+  .v{font-size:28px}
+  .grid{grid-template-columns:1fr}
+  .c3,.c6,.c12{grid-column:span 1}
+  #netBig{height:130px}
+  .svc{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div class="hrow">
+      <div class="hleft">
+        <div class="title" id="panelTitle">GoPanel</div>
+        <div class="small" id="clock">--:--:--</div>
+      </div>
+      <div class="hleft">
+        <div class="small" id="sysLine">-</div>
+        <div class="theme-toggle">
+          <span class="small">Тема</span>
+          <label class="switch">
+            <input id="themeToggle" type="checkbox">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+        <button class="btn" id="logoutBtn">Выход</button>
+      </div>
+    </div>
+    <div class="small" id="weatherLine">Погода: -</div>
+  </div>
+
+  <div class="grid">
+    <div class="card c3">
+      <div class="tt">CPU</div>
+      <div class="v" id="cpuV">0%</div>
+      <div class="sub" id="upV">uptime</div>
+      <canvas id="cpuC" width="600" height="100"></canvas>
+    </div>
+
+    <div class="card c3">
+      <div class="tt">Память</div>
+      <div class="v" id="memV">0%</div>
+      <div class="sub" id="memSub">0 / 0</div>
+      <canvas id="memC" width="600" height="100"></canvas>
+    </div>
+
+    <div class="card c3">
+      <div class="tt">Swap</div>
+      <div class="v" id="swapV">0%</div>
+      <div class="sub" id="swapSub">0 / 0</div>
+      <canvas id="connC" width="600" height="100"></canvas>
+    </div>
+
+    <div class="card c3">
+      <div class="tt">Disk /</div>
+      <div class="v" id="diskV">0%</div>
+      <div class="sub" id="diskSub">0 / 0</div>
+      <canvas id="sumNetC" width="600" height="100"></canvas>
+    </div>
+
+    <div class="card c12">
+      <div class="row">
+        <div><div class="tt">Сеть</div><div class="sub" id="netSub">—</div></div>
+        <div class="small" id="netTotals">—</div>
+      </div>
+      <canvas id="netBig" width="1200" height="180"></canvas>
+    </div>
+
+    <div class="card c6">
+      <div class="tt">Сервисы</div>
+      <div class="sub" id="svcCount">—</div>
+      <div class="svc-wrap" id="svcs"></div>
+    </div>
+
+    <div class="card c6">
+      <div class="tt">Температуры</div>
+      <div class="sub">thermal + hwmon</div>
+      <div class="temps" id="temps"></div>
+    </div>
+
+    <div class="card c12">
+      <div class="tt">Панель</div>
+      <div class="sub" id="panelSub">—</div>
+      <div class="sub" id="connSub">—</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+
+function endpoint(path){
+  return new URL(path, window.location.href).toString();
+}
+
+function applyTheme(t){
+  document.documentElement.setAttribute('data-theme', t);
+  localStorage.setItem('panel_theme', t);
+  $('#themeToggle').checked = t === 'dark';
+}
+(function initTheme(){
+  const t = localStorage.getItem('panel_theme') || 'light';
+  applyTheme(t);
+})();
+$('#themeToggle').addEventListener('change', e=>{
+  applyTheme(e.target.checked ? 'dark' : 'light');
+});
+
+$('#logoutBtn').onclick = async () => {
+  await fetch(endpoint('./login'), {method:'DELETE'});
+  location.href = endpoint('./login');
+};
+
+function fmtBytes(n){
+  const u=['B','KB','MB','GB','TB']; let i=0, v=n||0;
+  while(v>=1024&&i<u.length-1){v/=1024;i++}
+  return `${v.toFixed(v<10&&i>0?2:1)} ${u[i]}`;
+}
+function pct(v){return `${(v||0).toFixed(1)}%`}
+function rate(v){return `${fmtBytes(v)}/s`}
+function up(sec){
+  sec=Math.floor(sec||0);
+  const d=Math.floor(sec/86400); sec%=86400;
+  const h=Math.floor(sec/3600); sec%=3600;
+  const m=Math.floor(sec/60);
+  return `${d}d ${h}h ${m}m`;
+}
+function clockTick(){
+  const d=new Date();
+  $('#clock').textContent=d.toLocaleString();
+}
+setInterval(clockTick,1000);
+clockTick();
+
+function grid(ctx,w,h){
+  ctx.strokeStyle=getComputedStyle(document.documentElement)
+    .getPropertyValue('--line').trim();
+  ctx.lineWidth=1;
+  ctx.beginPath();
+  for(let i=1;i<=4;i++){
+    const y=(h/5)*i;
+    ctx.moveTo(0,y);
+    ctx.lineTo(w,y);
+  }
+  ctx.stroke();
+}
+function line(c,a,color,maxHint=0){
+  const ctx=c.getContext('2d'),w=c.width,h=c.height;
+  ctx.clearRect(0,0,w,h);
+  if(!a||a.length<2)return;
+  grid(ctx,w,h);
+  const max=Math.max(maxHint,...a,1),min=Math.min(...a,0);
+  ctx.strokeStyle=color;
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  a.forEach((v,i)=>{
+    const x=i*(w/(a.length-1));
+    const y=h-((v-min)/(max-min||1))*h;
+    i?ctx.lineTo(x,y):ctx.moveTo(x,y);
+  });
+  ctx.stroke();
+}
+function dual(c,a,b,c1,c2){
+  const ctx=c.getContext('2d'),w=c.width,h=c.height;
+  ctx.clearRect(0,0,w,h);
+  if(!a||!b||Math.max(a.length,b.length)<2)return;
+  grid(ctx,w,h);
+  const all=[...a,...b],max=Math.max(...all,1);
+  const draw=(arr,col)=>{
+    ctx.strokeStyle=col;
+    ctx.lineWidth=2;
+    ctx.beginPath();
+    arr.forEach((v,i)=>{
+      const x=i*(w/(arr.length-1));
+      const y=h-(v/max)*h;
+      i?ctx.lineTo(x,y):ctx.moveTo(x,y);
+    });
+    ctx.stroke();
+  };
+  draw(a,c1);
+  draw(b,c2);
+}
+
+async function tick(){
+  try{
+    const r = await fetch(endpoint('./api/stats'), {cache:'no-store'});
+    if(r.status===401){
+      location.href = endpoint('./login');
+      return;
+    }
+
+    const d = await r.json();
+    const n = d.now;
+    const h = d.history;
+
+    document.title=n.panelTitle||'GoPanel';
+    $('#panelTitle').textContent=n.panelTitle||'GoPanel';
+
+    $('#sysLine').textContent =
+      `${n.system.hostname} · ${n.system.localIp} · ${n.system.osName} ${n.system.osVersion} · kernel ${n.system.kernel}`;
+
+    if(n.weather && n.weather.enabled){
+      const w=n.weather;
+      const err=w.error?` (ошибка: ${w.error})`:'';
+      const t=(typeof w.tempC==='number')?w.tempC.toFixed(1):'-';
+      $('#weatherLine').textContent =
+        `Погода: ${w.city||'-'}, ${t}°C, ${w.desc||'-'}${err}`;
+    }else{
+      $('#weatherLine').textContent='Погода: отключено';
+    }
+
+    $('#cpuV').textContent=pct(n.cpu);
+    $('#upV').textContent=`uptime ${up(n.uptimeSec)}`;
+
+    $('#memV').textContent=pct(n.mem.percent);
+    $('#memSub').textContent=`${fmtBytes(n.mem.used)} / ${fmtBytes(n.mem.total)}`;
+
+    $('#swapV').textContent=pct(n.swap.percent);
+    $('#swapSub').textContent=`${fmtBytes(n.swap.used)} / ${fmtBytes(n.swap.total)}`;
+
+    $('#diskV').textContent=pct(n.disk.percent);
+    $('#diskSub').textContent=`${fmtBytes(n.disk.used)} / ${fmtBytes(n.disk.total)}`;
+
+    $('#netSub').textContent=`↓ ${rate(n.net.rxBps)}  ↑ ${rate(n.net.txBps)}`;
+    $('#netTotals').textContent=`RX ${fmtBytes(n.net.rxTotal)} / TX ${fmtBytes(n.net.txTotal)}`;
+
+    $('#panelSub').textContent =
+      `goroutines: ${n.panel.goroutines}, mem: ${fmtBytes(n.panel.memory)}`;
+    $('#connSub').textContent =
+      `TCP ${n.conn.tcp} · UDP ${n.conn.udp} · total ${n.conn.total}`;
+
+    const t=$('#temps');
+    t.innerHTML='';
+    (n.temps||[]).slice(0,18).forEach(x=>{
+      const e=document.createElement('div');
+      e.className='pill';
+      e.textContent=`${x.name}: ${x.c.toFixed(1)}°C`;
+      t.appendChild(e);
+    });
+
+    const svcs=n.services||[];
+    $('#svcCount').textContent =
+      `running ${svcs.filter(x=>x.running).length} / ${svcs.length}`;
+    const sbox=$('#svcs');
+    sbox.innerHTML='';
+    svcs.forEach(s=>{
+      const e=document.createElement('div');
+      e.className='svc';
+      e.innerHTML=`<div>${s.name}</div><div class="badge">${s.primaryRunlevel||'-'}</div><div class="${s.running?'ok':'bad'}">${s.running?'running':'stopped'}</div>`;
+      sbox.appendChild(e);
+    });
+
+    const blue=getComputedStyle(document.documentElement)
+      .getPropertyValue('--blue').trim();
+    const gray=getComputedStyle(document.documentElement)
+      .getPropertyValue('--gray').trim();
+    line($('#cpuC'),h.cpu,blue,100);
+    line($('#memC'),h.mem,blue,100);
+    line($('#connC'),h.conn,blue);
+    line($('#sumNetC'),h.rxKB.map((v,i)=>v+(h.txKB[i]||0)),blue);
+    dual($('#netBig'),h.rxKB,h.txKB,blue,gray);
+  }catch(_){}
+}
+
+tick();
+setInterval(tick,2000);
+</script>
+</body>
+</html>
