@@ -1,0 +1,23 @@
+panel:
+  title: "My Panel"
+  port: 8080
+  entrypoint: "/panel"
+  token: "token"
+
+
+collect:
+  interval_sec: 1
+  history: 120
+
+services:
+  manager: "systemd" # openrc | systemd
+  limit: 50
+  running_only: false
+  include: "sshd,crond,nginx"
+
+weather:
+  enabled: true
+  city: "Moscow"
+  token: "Open weather API"
+  units: "metric"
+  lang: "ru"
