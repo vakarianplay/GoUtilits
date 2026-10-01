@@ -515,6 +515,100 @@ func readServicesOpenRC(cfg ServicesConfig) []SvcInfo {
 }
 
 func readServicesSystemd(cfg ServicesConfig) []SvcInfo {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Берем фактические runtime-состояния сервисов.
+	// Формат строки:
+	// UNIT LOAD ACTIVE SUB DESCRIPTION
+	cmd := exec.CommandContext(
+		ctx,
+		"systemctl",
+		"list-units",
+		"--type=service",
+		"--all",
+		"--no-legend",
+		"--no-pager",
+		"--plain",
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		log.Printf("systemd list-units error: %v", err)
+		return nil
+	}
+
+	// Опционально читаем unit-file state (enabled/disabled/...)
+	unitState := readSystemdUnitFileStates()
+
+	include := toSet(cfg.Include)
+	lines := strings.Split(string(out), "\n")
+	res := make([]SvcInfo, 0, len(lines))
+
+	for _, ln := range lines {
+		ln = strings.TrimSpace(ln)
+		if ln == "" {
+			continue
+		}
+
+		fields := strings.Fields(ln)
+		// Нужны минимум UNIT LOAD ACTIVE SUB
+		if len(fields) < 4 {
+			continue
+		}
+
+		unit := fields[0]
+		if !strings.HasSuffix(unit, ".service") {
+			continue
+		}
+
+		name := strings.TrimSuffix(unit, ".service")
+		if len(include) > 0 {
+			if _, ok := include[name]; !ok {
+				if _, ok2 := include[unit]; !ok2 {
+					continue
+				}
+			}
+		}
+
+		active := fields[2] // active/inactive/failed...
+		sub := fields[3]    // running/exited/dead/...
+		running := active == "active" &&
+			(sub == "running" || sub == "listening" || sub == "exited")
+
+		if cfg.RunningOnly && !running {
+			continue
+		}
+
+		state := unitState[unit]
+		if state == "" {
+			state = unitState[name] // fallback
+		}
+		if state == "" {
+			state = "-"
+		}
+
+		res = append(res, SvcInfo{
+			Name:      name,
+			Running:   running,
+			Runlevels: []string{"systemd"},
+			PrimaryRL: state, // здесь будет enabled/disabled/static/...
+		})
+	}
+
+	sort.Slice(res, func(i, j int) bool {
+		if res[i].Running != res[j].Running {
+			return res[i].Running
+		}
+		return res[i].Name < res[j].Name
+	})
+
+	if cfg.Limit > 0 && len(res) > cfg.Limit {
+		res = res[:cfg.Limit]
+	}
+	return res
+}
+
+func readSystemdUnitFileStates() map[string]string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -528,54 +622,25 @@ func readServicesSystemd(cfg ServicesConfig) []SvcInfo {
 	)
 	out, err := cmd.Output()
 	if err != nil {
-		return nil
+		return map[string]string{}
 	}
 
-	include := toSet(cfg.Include)
-	lines := strings.Split(string(out), "\n")
-	var res []SvcInfo
-
-	for _, ln := range lines {
+	m := map[string]string{}
+	for _, ln := range strings.Split(string(out), "\n") {
 		ln = strings.TrimSpace(ln)
 		if ln == "" {
 			continue
 		}
-		fields := strings.Fields(ln)
-		if len(fields) == 0 {
+		f := strings.Fields(ln)
+		if len(f) < 2 {
 			continue
 		}
-		unit := fields[0]
-		if !strings.HasSuffix(unit, ".service") {
-			continue
-		}
-		name := strings.TrimSuffix(unit, ".service")
-
-		if len(include) > 0 {
-			if _, ok := include[name]; !ok {
-				if _, ok2 := include[unit]; !ok2 {
-					continue
-				}
-			}
-		}
-
-		r := isSystemdServiceRunning(unit)
-		if cfg.RunningOnly && !r {
-			continue
-		}
-
-		res = append(res, SvcInfo{
-			Name:      name,
-			Running:   r,
-			Runlevels: []string{"systemd"},
-			PrimaryRL: "systemd",
-		})
+		unit := f[0]
+		state := f[1]
+		m[unit] = state
+		m[strings.TrimSuffix(unit, ".service")] = state
 	}
-
-	sortServices(res)
-	if cfg.Limit > 0 && len(res) > cfg.Limit {
-		res = res[:cfg.Limit]
-	}
-	return res
+	return m
 }
 
 func isOpenRCServiceRunning(name string) bool {

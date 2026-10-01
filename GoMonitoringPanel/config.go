@@ -87,6 +87,10 @@ func LoadConfig(path string) (Config, error) {
 	for sc.Scan() {
 		raw := sc.Text()
 		line := strings.TrimSpace(raw)
+		line = stripInlineComment(line)
+		if line == "" {
+			continue
+		}
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -236,4 +240,27 @@ func normalizeEntrypoint(s string) string {
 		return "/"
 	}
 	return s
+}
+
+func stripInlineComment(s string) string {
+	inSingle := false
+	inDouble := false
+
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+
+		if ch == '\'' && !inDouble {
+			inSingle = !inSingle
+			continue
+		}
+		if ch == '"' && !inSingle {
+			inDouble = !inDouble
+			continue
+		}
+
+		if ch == '#' && !inSingle && !inDouble {
+			return strings.TrimSpace(s[:i])
+		}
+	}
+	return strings.TrimSpace(s)
 }
