@@ -1,0 +1,254 @@
+name: Build Go projects and release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+      - "GoMonitoringPanel/v*"
+      - "GpsSyncTime/v*"
+      - "HomeController/v*"
+      - "RelayClient/v*"
+      - "WebShare/v*"
+
+  pull_request:
+    branches:
+      - main
+      - master
+
+  workflow_dispatch:
+    inputs:
+      project:
+        description: Project to build
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - GoMonitoringPanel
+          - GpsSyncTime
+          - HomeController
+          - RelayClient
+          - WebShare
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Select projects
+    runs-on: ubuntu-24.04
+
+    outputs:
+      projects: ${{ steps.select.outputs.projects }}
+      version: ${{ steps.select.outputs.version }}
+
+    steps:
+      - name: Select projects and release version
+        id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          SELECTED_PROJECT: ${{ inputs.project }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+
+          projects = [
+              "GoMonitoringPanel",
+              "GpsSyncTime",
+              "HomeController",
+              "RelayClient",
+              "WebShare",
+          ]
+
+          selected = projects
+          version = ""
+
+          is_release = (
+              os.environ["EVENT_NAME"] == "push"
+              and os.environ["REF_TYPE"] == "tag"
+          )
+
+          if is_release:
+              tag = os.environ["REF_NAME"]
+
+              if tag.startswith("v"):
+                  version = tag
+              else:
+                  project, version = tag.split("/", 1)
+
+                  if project not in projects:
+                      raise SystemExit(f"Unknown project: {project}")
+
+                  if not version.startswith("v"):
+                      raise SystemExit(f"Invalid release tag: {tag}")
+
+                  selected = [project]
+          else:
+              project = os.environ.get("SELECTED_PROJECT") or "all"
+
+              if project != "all":
+                  if project not in projects:
+                      raise SystemExit(f"Unknown project: {project}")
+
+                  selected = [project]
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"projects={json.dumps(selected)}\n")
+              output.write(f"version={version}\n")
+
+          print(f"Selected projects: {', '.join(selected)}")
+          print(f"Release version: {version or 'build only'}")
+          PY
+
+  build:
+    name: Build ${{ matrix.project }}
+    needs: prepare
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.prepare.outputs.projects) }}
+
+    env:
+      PROJECT: ${{ matrix.project }}
+      GOOS: linux
+      CGO_ENABLED: "0"
+      GOWORK: "off"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          cache: true
+          cache-dependency-path: |
+            **/go.mod
+            **/go.sum
+
+      - name: Prepare Go module
+        working-directory: ${{ matrix.project }}
+        run: |
+          set -euo pipefail
+
+          if [ ! -f go.mod ]; then
+            go mod init "ci.local/$PROJECT"
+          fi
+
+          go mod tidy
+          go mod download
+
+      - name: Build and package all architectures
+        working-directory: ${{ matrix.project }}
+        run: |
+          set -euo pipefail
+
+          output_dir="$GITHUB_WORKSPACE/artifacts/$PROJECT"
+          mkdir -p "$output_dir"
+
+          for arch in amd64 arm arm64 riscv64; do
+            echo "::group::Build $PROJECT for linux/$arch"
+
+            export GOARCH="$arch"
+
+            if [ "$arch" = "arm" ]; then
+              export GOARM=7
+            else
+              unset GOARM
+            fi
+
+            package_dir="$RUNNER_TEMP/packages/$PROJECT/$arch/$PROJECT"
+            mkdir -p "$package_dir"
+
+            go build \
+              -trimpath \
+              -ldflags="-s -w" \
+              -o "$package_dir/$PROJECT" \
+              .
+
+            chmod 755 "$package_dir/$PROJECT"
+
+            for file in config.yml config.yaml README.md; do
+              if [ -f "$file" ]; then
+                cp "$file" "$package_dir/"
+              fi
+            done
+
+            if [ -d web ]; then
+              cp -a web "$package_dir/"
+            fi
+
+            tar -czf \
+              "$output_dir/$PROJECT-linux-$arch.tar.gz" \
+              -C "$(dirname "$package_dir")" \
+              "$PROJECT"
+
+            echo "::endgroup::"
+          done
+
+          cd "$output_dir"
+          sha256sum ./*.tar.gz > SHA256SUMS
+
+      - name: Upload project artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.project }}-linux
+          path: artifacts/${{ matrix.project }}/*
+          if-no-files-found: error
+          compression-level: 0
+
+  release:
+    name: Release ${{ matrix.project }}
+    needs:
+      - prepare
+      - build
+    if: needs.prepare.outputs.version != ''
+    runs-on: ubuntu-24.04
+
+    permissions:
+      contents: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.prepare.outputs.projects) }}
+
+    steps:
+      - name: Download project artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.project }}-linux
+          path: release-assets
+
+      - name: Create project release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PROJECT: ${{ matrix.project }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          release_tag="$PROJECT/$VERSION"
+
+          if ! gh release view "$release_tag" > /dev/null 2>&1; then
+            gh release create "$release_tag" \
+              --target "$SOURCE_SHA" \
+              --title "$PROJECT $VERSION" \
+              --generate-notes
+          fi
+
+          gh release upload "$release_tag" \
+            release-assets/*.tar.gz \
+            release-assets/SHA256SUMS \
+            --clobber
