@@ -5,4 +5,4 @@
 Run by one execute file and setup by simple config.yml
 
 
-https://github.com/vakarianplay/GoUtilits/releases/tag/monitoringpanel
+https://github.com/vakarianplay/GoUtilits/releases/tag/GoMonitoringPanel%2Fv2.1
