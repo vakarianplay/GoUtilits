@@ -151,7 +151,7 @@ jobs:
           go mod tidy
           go mod download
 
-      - name: Build and package all platforms
+      - name: Build and package platforms
         working-directory: ${{ matrix.project }}
         run: |
           set -euo pipefail
@@ -164,8 +164,11 @@ jobs:
             "linux/arm"
             "linux/arm64"
             "linux/riscv64"
-            "windows/amd64"
           )
+
+          if [ "$PROJECT" != "GoMonitoringPanel" ]; then
+            platforms+=("windows/amd64")
+          fi
 
           for platform in "${platforms[@]}"; do
             IFS=/ read -r target_os target_arch <<< "$platform"
@@ -186,6 +189,7 @@ jobs:
             mkdir -p "$package_dir"
 
             executable="$PROJECT"
+
             if [ "$target_os" = "windows" ]; then
               executable="$PROJECT.exe"
             fi
@@ -231,7 +235,16 @@ jobs:
           done
 
           cd "$output_dir"
-          sha256sum ./*.tar.gz ./*.zip > SHA256SUMS
+
+          shopt -s nullglob
+          archives=(./*.tar.gz ./*.zip)
+
+          if [ "${#archives[@]}" -eq 0 ]; then
+            echo "ERROR: No archives were created"
+            exit 1
+          fi
+
+          sha256sum "${archives[@]}" > SHA256SUMS
 
       - name: Upload project artifacts
         uses: actions/upload-artifact@v4
@@ -283,8 +296,19 @@ jobs:
               --generate-notes
           fi
 
+          shopt -s nullglob
+
+          archives=(
+            release-assets/*.tar.gz
+            release-assets/*.zip
+          )
+
+          if [ "${#archives[@]}" -eq 0 ]; then
+            echo "ERROR: No release archives were downloaded"
+            exit 1
+          fi
+
           gh release upload "$release_tag" \
-            release-assets/*.tar.gz \
-            release-assets/*.zip \
+            "${archives[@]}" \
             release-assets/SHA256SUMS \
             --clobber
