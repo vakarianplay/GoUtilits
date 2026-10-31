@@ -1,4 +1,4 @@
-name: Build GoMeshtasticBot and release
+name: Build and release GoMeshtasticBot
 
 on:
   push:
@@ -24,8 +24,11 @@ concurrency:
 
 env:
   APP_NAME: GoMeshtasticBot
-  CGO_ENABLED: "1"
   GOWORK: "off"
+
+  # Можно указать точный путь, например configs/config.yml.
+  # Пустое значение включает автоматический поиск.
+  CONFIG_PATH: ""
 
 jobs:
   build:
@@ -36,27 +39,102 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Find and prepare package files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Checked out commit:"
+          git log -1 --format='%h %s'
+
+          python3 <<'PY'
+          import os
+          import shutil
+          import subprocess
+          from pathlib import Path
+
+          def fail(message):
+              print(f"::error::{message}", flush=True)
+              raise SystemExit(1)
+
+          tracked = subprocess.check_output(
+              ["git", "ls-files", "-z"]
+          ).decode("utf-8").split("\0")
+
+          candidates = sorted(
+              Path(name)
+              for name in tracked
+              if name
+              and Path(name).name.lower() in ("config.yml", "config.yaml")
+          )
+
+          print("Configuration files in this commit:", flush=True)
+          for path in candidates:
+              print(f"  {path}", flush=True)
+
+          explicit = os.environ.get("CONFIG_PATH", "").strip()
+
+          if explicit:
+              config = Path(explicit)
+          elif Path("config.yml").is_file():
+              config = Path("config.yml")
+          elif Path("config.yaml").is_file():
+              config = Path("config.yaml")
+          elif len(candidates) == 1:
+              config = candidates[0]
+          elif not candidates:
+              fail(
+                  "No config.yml/config.yaml found in this commit. "
+                  "Commit the file or set CONFIG_PATH to its actual path."
+              )
+          else:
+              fail(
+                  "Multiple configuration files found. "
+                  "Set CONFIG_PATH in the workflow."
+              )
+
+          if not config.is_file():
+              fail(f"Configuration file does not exist: {config}")
+
+          if config.stat().st_size == 0:
+              fail(f"Configuration file is empty: {config}")
+
+          readme = Path("README.md")
+          if not readme.is_file() or readme.stat().st_size == 0:
+              fail("README.md is missing or empty in the repository root.")
+
+          destination = Path(os.environ["RUNNER_TEMP"]) / "release-common"
+          destination.mkdir(parents=True, exist_ok=True)
+
+          shutil.copyfile(config, destination / "config.yml")
+          shutil.copyfile(readme, destination / "README.md")
+
+          print(f"Using configuration: {config}", flush=True)
+          PY
+
       - name: Install Go
         uses: actions/setup-go@v6
         with:
           go-version: stable
-          cache: true
-          cache-dependency-path: |
-            go.mod
-            go.sum
+          # go.mod/go.sum могут отсутствовать до подготовки модуля.
+          cache: false
 
       - name: Install compilers and packaging tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install --no-install-recommends -y \
             gcc \
+            libc6-dev \
             gcc-arm-linux-gnueabihf \
+            libc6-dev-armhf-cross \
             gcc-aarch64-linux-gnu \
+            libc6-dev-arm64-cross \
             gcc-riscv64-linux-gnu \
+            libc6-dev-riscv64-cross \
             gcc-mingw-w64-x86-64 \
             zip
 
-      - name: Prepare Go module
+      - name: Prepare Go dependencies
         run: |
           set -euo pipefail
 
@@ -68,25 +146,17 @@ jobs:
           go mod download
           go mod verify
 
-      - name: Check required package files
-        run: |
-          set -euo pipefail
-
-          for file in README.md config.yml; do
-            if [ ! -s "$file" ]; then
-              echo "::error::Required file is missing or empty: $file"
-              exit 1
-            fi
-          done
-
-      - name: Build and package all platforms
+      - name: Build and package
+        shell: bash
         run: |
           set -euo pipefail
 
           output_dir="$GITHUB_WORKSPACE/dist"
+          common_dir="$RUNNER_TEMP/release-common"
+
           mkdir -p "$output_dir"
 
-          # Format: GOOS/GOARCH/C compiler
+          # GOOS / GOARCH / C compiler
           platforms=(
             "linux/amd64/gcc"
             "linux/arm/arm-linux-gnueabihf-gcc"
@@ -103,20 +173,21 @@ jobs:
             goarm=""
 
             if [ "$target_arch" = "arm" ]; then
-              goarm="7"
               platform_name="linux-armv7"
+              goarm="7"
             fi
 
             if [ "$target_os" = "windows" ]; then
-              executable="${APP_NAME}.exe"
               platform_name="windows-x64"
+              executable="${APP_NAME}.exe"
             fi
 
-            package_dir="$RUNNER_TEMP/packages/$APP_NAME/$platform_name"
+            package_dir="$RUNNER_TEMP/packages/$platform_name"
             mkdir -p "$package_dir"
 
-            echo "::group::Build $APP_NAME for $platform_name"
+            echo "::group::Build $platform_name"
 
+            CGO_ENABLED=1 \
             GOOS="$target_os" \
             GOARCH="$target_arch" \
             GOARM="$goarm" \
@@ -129,26 +200,23 @@ jobs:
 
             test -s "$package_dir/$executable"
 
-            cp README.md config.yml "$package_dir/"
+            cp "$common_dir/README.md" "$package_dir/README.md"
+            cp "$common_dir/config.yml" "$package_dir/config.yml"
 
-            archive_base="$output_dir/$APP_NAME-$platform_name"
+            archive="$output_dir/$APP_NAME-$platform_name"
 
             if [ "$target_os" = "windows" ]; then
               (
                 cd "$package_dir"
-                zip -9 "$archive_base.zip" \
-                  "$executable" \
-                  README.md \
-                  config.yml
+                zip -9 "$archive.zip" \
+                  "$executable" README.md config.yml
               )
             else
               chmod 755 "$package_dir/$executable"
 
-              tar -czf "$archive_base.tar.gz" \
+              tar -czf "$archive.tar.gz" \
                 -C "$package_dir" \
-                "$executable" \
-                README.md \
-                config.yml
+                "$executable" README.md config.yml
             fi
 
             echo "::endgroup::"
@@ -160,13 +228,13 @@ jobs:
           archives=(*.tar.gz *.zip)
 
           if [ "${#archives[@]}" -ne 5 ]; then
-            echo "::error::Expected 5 platform archives"
+            echo "::error::Expected exactly 5 platform archives"
             exit 1
           fi
 
           sha256sum "${archives[@]}" > SHA256SUMS.txt
 
-      - name: Upload build artifacts
+      - name: Upload archives
         uses: actions/upload-artifact@v4
         with:
           name: GoMeshtasticBot-binaries
@@ -187,13 +255,14 @@ jobs:
       contents: write
 
     steps:
-      - name: Download build artifacts
+      - name: Download archives
         uses: actions/download-artifact@v4
         with:
           name: GoMeshtasticBot-binaries
           path: release-assets
 
-      - name: Create release and upload archives
+      - name: Verify and publish release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -208,7 +277,7 @@ jobs:
           )
 
           if [ "${#archives[@]}" -ne 5 ]; then
-            echo "::error::Expected 5 release archives"
+            echo "::error::Expected exactly 5 release archives"
             exit 1
           fi
 
@@ -217,14 +286,19 @@ jobs:
             sha256sum --check SHA256SUMS.txt
           )
 
-          if ! gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+          assets=(
+            "${archives[@]}"
+            release-assets/SHA256SUMS.txt
+          )
+
+          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              "${assets[@]}" \
+              --clobber
+          else
             gh release create "$RELEASE_TAG" \
+              "${assets[@]}" \
               --verify-tag \
               --title "$APP_NAME $RELEASE_TAG" \
               --generate-notes
           fi
-
-          gh release upload "$RELEASE_TAG" \
-            "${archives[@]}" \
-            release-assets/SHA256SUMS.txt \
-            --clobber
