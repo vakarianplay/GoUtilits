@@ -1,4 +1,4 @@
-name: Build and release GoMeshtasticBot
+name: Build Go projects and release
 
 on:
   push:
@@ -7,6 +7,11 @@ on:
       - master
     tags:
       - "v*"
+      - "GoMonitoringPanel/v*"
+      - "GpsSyncTime/v*"
+      - "HomeController/v*"
+      - "RelayClient/v*"
+      - "WebShare/v*"
 
   pull_request:
     branches:
@@ -14,184 +19,183 @@ on:
       - master
 
   workflow_dispatch:
+    inputs:
+      project:
+        description: Project to build
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - GoMonitoringPanel
+          - GpsSyncTime
+          - HomeController
+          - RelayClient
+          - WebShare
 
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
-
-env:
-  APP_NAME: GoMeshtasticBot
-  GOWORK: "off"
-
-  # Можно указать точный путь, например configs/config.yml.
-  # Пустое значение включает автоматический поиск.
-  CONFIG_PATH: ""
-
 jobs:
+  prepare:
+    name: Select projects
+    runs-on: ubuntu-24.04
+
+    outputs:
+      projects: ${{ steps.select.outputs.projects }}
+      version: ${{ steps.select.outputs.version }}
+
+    steps:
+      - name: Select projects and release version
+        id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          SELECTED_PROJECT: ${{ inputs.project }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+
+          projects = [
+              "GoMonitoringPanel",
+              "GpsSyncTime",
+              "HomeController",
+              "RelayClient",
+              "WebShare",
+          ]
+
+          selected = projects
+          version = ""
+
+          is_release = (
+              os.environ["EVENT_NAME"] == "push"
+              and os.environ["REF_TYPE"] == "tag"
+          )
+
+          if is_release:
+              tag = os.environ["REF_NAME"]
+
+              if tag.startswith("v"):
+                  version = tag
+              else:
+                  project, version = tag.split("/", 1)
+
+                  if project not in projects:
+                      raise SystemExit(f"Unknown project: {project}")
+
+                  if not version.startswith("v"):
+                      raise SystemExit(f"Invalid release tag: {tag}")
+
+                  selected = [project]
+          else:
+              project = os.environ.get("SELECTED_PROJECT") or "all"
+
+              if project != "all":
+                  if project not in projects:
+                      raise SystemExit(f"Unknown project: {project}")
+
+                  selected = [project]
+
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"projects={json.dumps(selected)}\n")
+              output.write(f"version={version}\n")
+
+          print(f"Selected projects: {', '.join(selected)}")
+          print(f"Release version: {version or 'build only'}")
+          PY
+
   build:
-    name: Build all platforms
-    runs-on: ubuntu-22.04
+    name: Build ${{ matrix.project }}
+    needs: prepare
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.prepare.outputs.projects) }}
+
+    env:
+      PROJECT: ${{ matrix.project }}
+      CGO_ENABLED: "0"
+      GOWORK: "off"
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Find and prepare package files
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "Checked out commit:"
-          git log -1 --format='%h %s'
-
-          python3 <<'PY'
-          import os
-          import shutil
-          import subprocess
-          from pathlib import Path
-
-          def fail(message):
-              print(f"::error::{message}", flush=True)
-              raise SystemExit(1)
-
-          tracked = subprocess.check_output(
-              ["git", "ls-files", "-z"]
-          ).decode("utf-8").split("\0")
-
-          candidates = sorted(
-              Path(name)
-              for name in tracked
-              if name
-              and Path(name).name.lower() in ("config.yml", "config.yaml")
-          )
-
-          print("Configuration files in this commit:", flush=True)
-          for path in candidates:
-              print(f"  {path}", flush=True)
-
-          explicit = os.environ.get("CONFIG_PATH", "").strip()
-
-          if explicit:
-              config = Path(explicit)
-          elif Path("config.yml").is_file():
-              config = Path("config.yml")
-          elif Path("config.yaml").is_file():
-              config = Path("config.yaml")
-          elif len(candidates) == 1:
-              config = candidates[0]
-          elif not candidates:
-              fail(
-                  "No config.yml/config.yaml found in this commit. "
-                  "Commit the file or set CONFIG_PATH to its actual path."
-              )
-          else:
-              fail(
-                  "Multiple configuration files found. "
-                  "Set CONFIG_PATH in the workflow."
-              )
-
-          if not config.is_file():
-              fail(f"Configuration file does not exist: {config}")
-
-          if config.stat().st_size == 0:
-              fail(f"Configuration file is empty: {config}")
-
-          readme = Path("README.md")
-          if not readme.is_file() or readme.stat().st_size == 0:
-              fail("README.md is missing or empty in the repository root.")
-
-          destination = Path(os.environ["RUNNER_TEMP"]) / "release-common"
-          destination.mkdir(parents=True, exist_ok=True)
-
-          shutil.copyfile(config, destination / "config.yml")
-          shutil.copyfile(readme, destination / "README.md")
-
-          print(f"Using configuration: {config}", flush=True)
-          PY
-
       - name: Install Go
         uses: actions/setup-go@v6
         with:
           go-version: stable
-          # go.mod/go.sum могут отсутствовать до подготовки модуля.
-          cache: false
+          cache: true
+          cache-dependency-path: |
+            **/go.mod
+            **/go.sum
 
-      - name: Install compilers and packaging tools
+      - name: Install packaging tools
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y \
-            gcc \
-            libc6-dev \
-            gcc-arm-linux-gnueabihf \
-            libc6-dev-armhf-cross \
-            gcc-aarch64-linux-gnu \
-            libc6-dev-arm64-cross \
-            gcc-riscv64-linux-gnu \
-            libc6-dev-riscv64-cross \
-            gcc-mingw-w64-x86-64 \
-            zip
+          sudo apt-get install -y zip
 
-      - name: Prepare Go dependencies
+      - name: Prepare Go module
+        working-directory: ${{ matrix.project }}
         run: |
           set -euo pipefail
 
           if [ ! -f go.mod ]; then
-            go mod init github.com/vakarianplay/GoMeshtasticBot
+            go mod init "ci.local/$PROJECT"
           fi
 
           go mod tidy
           go mod download
-          go mod verify
 
-      - name: Build and package
-        shell: bash
+      - name: Build and package platforms
+        working-directory: ${{ matrix.project }}
         run: |
           set -euo pipefail
 
-          output_dir="$GITHUB_WORKSPACE/dist"
-          common_dir="$RUNNER_TEMP/release-common"
-
+          output_dir="$GITHUB_WORKSPACE/artifacts/$PROJECT"
           mkdir -p "$output_dir"
 
-          # GOOS / GOARCH / C compiler
           platforms=(
-            "linux/amd64/gcc"
-            "linux/arm/arm-linux-gnueabihf-gcc"
-            "linux/arm64/aarch64-linux-gnu-gcc"
-            "linux/riscv64/riscv64-linux-gnu-gcc"
-            "windows/amd64/x86_64-w64-mingw32-gcc"
+            "linux/amd64"
+            "linux/arm"
+            "linux/arm64"
+            "linux/riscv64"
           )
 
-          for platform in "${platforms[@]}"; do
-            IFS=/ read -r target_os target_arch compiler <<< "$platform"
+          if [ "$PROJECT" != "GoMonitoringPanel" ]; then
+            platforms+=("windows/amd64")
+          fi
 
-            platform_name="$target_os-$target_arch"
-            executable="$APP_NAME"
-            goarm=""
+          for platform in "${platforms[@]}"; do
+            IFS=/ read -r target_os target_arch <<< "$platform"
+
+            export GOOS="$target_os"
+            export GOARCH="$target_arch"
 
             if [ "$target_arch" = "arm" ]; then
-              platform_name="linux-armv7"
-              goarm="7"
+              export GOARM=7
+            else
+              unset GOARM
             fi
 
-            if [ "$target_os" = "windows" ]; then
-              platform_name="windows-x64"
-              executable="${APP_NAME}.exe"
-            fi
+            platform_name="$target_os-$target_arch"
+            package_root="$RUNNER_TEMP/packages/$PROJECT/$platform_name"
+            package_dir="$package_root/$PROJECT"
 
-            package_dir="$RUNNER_TEMP/packages/$platform_name"
             mkdir -p "$package_dir"
 
-            echo "::group::Build $platform_name"
+            executable="$PROJECT"
 
-            CGO_ENABLED=1 \
-            GOOS="$target_os" \
-            GOARCH="$target_arch" \
-            GOARM="$goarm" \
-            CC="$compiler" \
+            if [ "$target_os" = "windows" ]; then
+              executable="$PROJECT.exe"
+            fi
+
+            echo "::group::Build $PROJECT for $platform"
+
             go build \
               -trimpath \
               -ldflags="-s -w" \
@@ -200,23 +204,31 @@ jobs:
 
             test -s "$package_dir/$executable"
 
-            cp "$common_dir/README.md" "$package_dir/README.md"
-            cp "$common_dir/config.yml" "$package_dir/config.yml"
+            if [ "$target_os" = "linux" ]; then
+              chmod 755 "$package_dir/$executable"
+            fi
 
-            archive="$output_dir/$APP_NAME-$platform_name"
+            for file in config.yml config.yaml README.md; do
+              if [ -f "$file" ]; then
+                cp "$file" "$package_dir/"
+              fi
+            done
+
+            if [ -d web ]; then
+              cp -a web "$package_dir/"
+            fi
+
+            archive_base="$output_dir/$PROJECT-$platform_name"
 
             if [ "$target_os" = "windows" ]; then
               (
-                cd "$package_dir"
-                zip -9 "$archive.zip" \
-                  "$executable" README.md config.yml
+                cd "$package_root"
+                zip -qr "$archive_base.zip" "$PROJECT"
               )
             else
-              chmod 755 "$package_dir/$executable"
-
-              tar -czf "$archive.tar.gz" \
-                -C "$package_dir" \
-                "$executable" README.md config.yml
+              tar -czf "$archive_base.tar.gz" \
+                -C "$package_root" \
+                "$PROJECT"
             fi
 
             echo "::endgroup::"
@@ -225,80 +237,78 @@ jobs:
           cd "$output_dir"
 
           shopt -s nullglob
-          archives=(*.tar.gz *.zip)
+          archives=(./*.tar.gz ./*.zip)
 
-          if [ "${#archives[@]}" -ne 5 ]; then
-            echo "::error::Expected exactly 5 platform archives"
+          if [ "${#archives[@]}" -eq 0 ]; then
+            echo "ERROR: No archives were created"
             exit 1
           fi
 
-          sha256sum "${archives[@]}" > SHA256SUMS.txt
+          sha256sum "${archives[@]}" > SHA256SUMS
 
-      - name: Upload archives
+      - name: Upload project artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: GoMeshtasticBot-binaries
-          path: dist/*
+          name: ${{ matrix.project }}-binaries
+          path: artifacts/${{ matrix.project }}/*
           if-no-files-found: error
           compression-level: 0
-          retention-days: 14
 
   release:
-    name: Publish GitHub Release
-    needs: build
-    if: >-
-      github.event_name == 'push' &&
-      startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-22.04
+    name: Release ${{ matrix.project }}
+    needs:
+      - prepare
+      - build
+    if: needs.prepare.outputs.version != ''
+    runs-on: ubuntu-24.04
 
     permissions:
       contents: write
 
+    strategy:
+      fail-fast: false
+      matrix:
+        project: ${{ fromJSON(needs.prepare.outputs.projects) }}
+
     steps:
-      - name: Download archives
+      - name: Download project artifacts
         uses: actions/download-artifact@v4
         with:
-          name: GoMeshtasticBot-binaries
+          name: ${{ matrix.project }}-binaries
           path: release-assets
 
-      - name: Verify and publish release
-        shell: bash
+      - name: Create release and upload archives
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          PROJECT: ${{ matrix.project }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
 
+          release_tag="$PROJECT/$VERSION"
+
+          if ! gh release view "$release_tag" > /dev/null 2>&1; then
+            gh release create "$release_tag" \
+              --target "$SOURCE_SHA" \
+              --title "$PROJECT $VERSION" \
+              --generate-notes
+          fi
+
           shopt -s nullglob
+
           archives=(
             release-assets/*.tar.gz
             release-assets/*.zip
           )
 
-          if [ "${#archives[@]}" -ne 5 ]; then
-            echo "::error::Expected exactly 5 release archives"
+          if [ "${#archives[@]}" -eq 0 ]; then
+            echo "ERROR: No release archives were downloaded"
             exit 1
           fi
 
-          (
-            cd release-assets
-            sha256sum --check SHA256SUMS.txt
-          )
-
-          assets=(
-            "${archives[@]}"
-            release-assets/SHA256SUMS.txt
-          )
-
-          if gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" \
-              "${assets[@]}" \
-              --clobber
-          else
-            gh release create "$RELEASE_TAG" \
-              "${assets[@]}" \
-              --verify-tag \
-              --title "$APP_NAME $RELEASE_TAG" \
-              --generate-notes
-          fi
+          gh release upload "$release_tag" \
+            "${archives[@]}" \
+            release-assets/SHA256SUMS \
+            --clobber
